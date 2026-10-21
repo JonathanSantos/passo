@@ -259,7 +259,12 @@ fn review_failures_become_fix_steps_until_the_round_limit() {
         assert_eq!(sim.run.stage, Stage::Construir);
         assert!(sim.run.current_step().unwrap().fix);
         assert_eq!(sim.run.rounds, round);
-        sim.apply(Command::StepDone(facts(&["src/f.rs"], false))).unwrap();
+        assert!(
+            sim.run.current_step().unwrap().test.contains("C2"),
+            "a fix for a criterion asks for a test"
+        );
+        sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/c.rs"], true)))
+            .unwrap();
     }
     sim.apply(Command::SubmitReview(parse_review(failing, &criteria).unwrap()))
         .unwrap();

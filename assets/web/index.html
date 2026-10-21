@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Passo</title>
+<link rel="icon" href="{{ICON}}">
+<style>/*CSS*/</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="2" y="22" width="4.5" height="6" rx="1"/><rect x="8" y="18" width="4.5" height="10" rx="1"/>
+      <rect x="14" y="14" width="4.5" height="14" rx="1"/><rect x="20" y="10" width="4.5" height="18" rx="1"/>
+      <rect class="last" x="26" y="6" width="4.5" height="22" rx="1"/>
+    </svg>
+    <span class="word">passo</span>
+    <span class="project" id="project"></span>
+  </div>
+  <div class="top-right">
+    <select id="runs" aria-label="Run"></select>
+    <span class="live" id="live"></span>
+  </div>
+</header>
+
+<section class="rail" id="rail" aria-label="Etapas"></section>
+
+<main class="grid">
+  <div class="col">
+    <section class="card now" id="now"></section>
+    <section class="card" id="request"></section>
+    <section class="card" id="plan"></section>
+    <section class="card" id="checks"></section>
+  </div>
+  <aside class="col">
+    <section class="card" id="metrics"></section>
+    <section class="card feed" id="activity"></section>
+  </aside>
+</main>
+
+<footer class="foot" id="foot"></footer>
+<script>window.PASSO = "/*BOOT*/";</script>
+<script>/*JS*/</script>
+</body>
+</html>

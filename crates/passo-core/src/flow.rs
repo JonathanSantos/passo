@@ -566,6 +566,12 @@ impl<'a> Engine<'a> {
             .filter(|c| c.ok == Some(false))
             .map(|c| (format!("Atender {}: {}", c.id, c.text), c.evidence.clone()))
             .collect();
+        let tests: Vec<String> = run
+            .criteria
+            .iter()
+            .filter(|c| c.ok == Some(false))
+            .map(|c| format!("um teste que prove {}: {}", c.id, c.text))
+            .collect();
         let ok = run.criteria.len() - failing.len();
         out.event(
             run,
@@ -574,12 +580,20 @@ impl<'a> Engine<'a> {
             format!("Revisão: {ok}/{} critério(s) ok", run.criteria.len()),
         );
         for note in &review.notes {
-            run.notes.push(format!("Revisão: {note}"));
+            let note = format!("Revisão: {note}");
+            if !run.notes.contains(&note) {
+                run.notes.push(note);
+            }
         }
         if failing.is_empty() {
             self.enter(run, Stage::Entregar, out, now);
         } else {
+            let first = run.steps.len();
             self.back_to_build(run, failing, out, now);
+            // A criterion the review could not confirm is fixed with a test that proves it.
+            for (step, test) in run.steps[first..].iter_mut().zip(tests) {
+                step.test = test;
+            }
         }
         Ok(())
     }

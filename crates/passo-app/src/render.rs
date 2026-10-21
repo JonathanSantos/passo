@@ -212,9 +212,10 @@ fn hand_in(view: &View) -> String {
     let profile = view.config.profile(run.size);
     match run.stage {
         Stage::Refinar => format!(
-            "Escreva este JSON num arquivo temporário e rode `{bin} done <arquivo>`. No tamanho {}, no máximo {} pergunta(s); sem perguntas, deixe `perguntas` vazio.\n\n```json\n{BRIEF_TEMPLATE}\n```\n",
+            "Escreva este JSON num arquivo temporário e rode `{bin} done <arquivo>`. No tamanho {}, no máximo {} pergunta(s); sem perguntas, deixe `perguntas` vazio. Só mude `tamanho` se o pedido for claramente maior.\n\n```json\n{}\n```\n",
             run.size.id(),
-            profile.max_questions
+            profile.max_questions,
+            BRIEF_TEMPLATE.replace("\"tamanho\": \"m\"", &format!("\"tamanho\": \"{}\"", run.size.id()))
         ),
         Stage::Planejar => format!(
             "Escreva este JSON num arquivo temporário e rode `{bin} done <arquivo>`. No tamanho {}, no máximo {} passo(s).\n\n```json\n{PLAN_TEMPLATE}\n```\n",

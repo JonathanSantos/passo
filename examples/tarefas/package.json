@@ -1,0 +1,11 @@
+{
+  "name": "tarefas",
+  "version": "1.0.0",
+  "description": "Lista de tarefas na linha de comando: o projeto de exemplo do Passo",
+  "type": "module",
+  "bin": { "tarefas": "src/cli.js" },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/tasks.js && node --check src/cli.js"
+  }
+}
