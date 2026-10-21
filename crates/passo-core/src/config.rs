@@ -38,6 +38,43 @@ pub struct Profile {
     pub escalate_after: u32,
     /// Tool calls per step (per stage, outside build) before the agent is told to hand in or ask (0 = no limit).
     pub max_tool_calls: u32,
+    /// Lines of the project map each stage may read (0 = no map in that stage).
+    pub map_lines: MapLines,
+}
+
+/// How many lines of the project map each agent stage reads. Delivering reads none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MapLines {
+    pub refinar: usize,
+    pub planejar: usize,
+    pub construir: usize,
+    pub verificar: usize,
+}
+
+impl MapLines {
+    pub const OFF: MapLines = MapLines {
+        refinar: 0,
+        planejar: 0,
+        construir: 0,
+        verificar: 0,
+    };
+    pub const DEFAULT: MapLines = MapLines {
+        refinar: 60,
+        planejar: 120,
+        construir: 60,
+        verificar: 100,
+    };
+
+    pub fn for_stage(&self, stage: Stage) -> usize {
+        match stage {
+            Stage::Refinar => self.refinar,
+            Stage::Planejar => self.planejar,
+            Stage::Construir => self.construir,
+            Stage::Verificar => self.verificar,
+            Stage::Entregar => 0,
+        }
+    }
 }
 
 impl Profile {
@@ -69,6 +106,7 @@ impl Profile {
                 // A small fix that fails is the wrong size, not the wrong model.
                 escalate_after: 0,
                 max_tool_calls: 30,
+                map_lines: MapLines::OFF,
             },
             Size::P => Profile {
                 refinar: Mode::Agente,
@@ -84,6 +122,7 @@ impl Profile {
                 max_rounds: 2,
                 escalate_after: 1,
                 max_tool_calls: 60,
+                map_lines: MapLines::DEFAULT,
             },
             Size::M => Profile {
                 refinar: Mode::Agente,
@@ -99,6 +138,7 @@ impl Profile {
                 max_rounds: 2,
                 escalate_after: 1,
                 max_tool_calls: 80,
+                map_lines: MapLines::DEFAULT,
             },
             Size::G => Profile {
                 refinar: Mode::Agente,
@@ -114,6 +154,7 @@ impl Profile {
                 max_rounds: 3,
                 escalate_after: 1,
                 max_tool_calls: 120,
+                map_lines: MapLines::DEFAULT,
             },
         }
     }
