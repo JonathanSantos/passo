@@ -20,11 +20,13 @@ A regra do dev, fixa:
 | `aceitar`                     | `passo ok` se as checagens passaram e nenhum critério foi reprovado; senão `passo no "<primeiro critério reprovado>"` |
 | `travado`                     | `passo ok` na primeira vez; `passo stop` na segunda                  |
 
+Decisão: no gate `limite` (o diff passou do que o tamanho permite) o dev segue (`passo ok`), porque o tamanho foi escolhido no começo e a regra não o muda no meio.
+
 Os comandos do dev saem com `PASSO_DEV=1`, porque o script pode rodar dentro do terminal de um agente. Com os hooks ativos (`--setting-sources project`), os tokens entram em `passo stats` sem nada à mão.
 
 `tabela.js` lê `resultados/` e imprime a tabela em Markdown: a mediana de cada linha, com o intervalo entre parênteses. **A tabela da simulação no README principal sai daqui, nunca escrita à mão.**
 
-O script é melhor esforço: gasta tokens da sua conta (`BUDGET_USD`, padrão 3 por chamada) e é o único lugar a ajustar quando a CLI do agente mudar (os flags ficam numa variável no topo). Variáveis: `CLAUDE`, `PASSO`, `BUDGET_USD`, `MAX_TURNS`.
+O script é melhor esforço: gasta tokens da sua conta (`BUDGET_USD`, padrão 3 por chamada) e é o único lugar a ajustar quando a CLI do agente mudar (os flags ficam numa variável no topo). Variáveis: `CLAUDE`, `PASSO`, `BUDGET_USD`, `MAX_TURNS` e `KEEP=1`, que mantém a pasta temporária de cada rodada (por padrão ela é apagada no fim). Além do `passo stats --json`, cada resultado guarda a suíte escondida, os testes do projeto no fim e, do `run.json`, a prova, as perguntas e os passos.
 
 ## Protocolo
 

@@ -165,6 +165,8 @@ O mesmo pedido de tamanho `m` no projeto de exemplo ([`examples/tarefas`](exampl
 | Tempo total | 4min 46s | 2min 28s |
 | Tokens por etapa (refinar · planejar · construir · verificar · entregar) | 6,1k · 9,5k · 29,7k · 17,1k · 7,7k | 4,8k · 6,4k · 16,8k · 4,6k · 3,1k |
 | Tokens no run · chamadas ao modelo | 70,1k · 31 | 35,7k · 15 |
+| Escaladas para o nível forte | — | — |
+| Ações por passo (média · máximo) | — | — |
 
 O que a simulação mostrou:
 
