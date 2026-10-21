@@ -34,6 +34,8 @@ pub struct Profile {
     pub block_sensitive: bool,
     /// Times verify may send the run back to build before the dev is called.
     pub max_rounds: u32,
+    /// Failed attempts of a step before its next attempt asks for the strong tier (0 = never).
+    pub escalate_after: u32,
 }
 
 impl Profile {
@@ -62,6 +64,8 @@ impl Profile {
                 max_lines: 120,
                 block_sensitive: true,
                 max_rounds: 1,
+                // A small fix that fails is the wrong size, not the wrong model.
+                escalate_after: 0,
             },
             Size::P => Profile {
                 refinar: Mode::Agente,
@@ -75,6 +79,7 @@ impl Profile {
                 max_lines: 400,
                 block_sensitive: false,
                 max_rounds: 2,
+                escalate_after: 1,
             },
             Size::M => Profile {
                 refinar: Mode::Agente,
@@ -88,6 +93,7 @@ impl Profile {
                 max_lines: 0,
                 block_sensitive: false,
                 max_rounds: 2,
+                escalate_after: 1,
             },
             Size::G => Profile {
                 refinar: Mode::Agente,
@@ -101,6 +107,7 @@ impl Profile {
                 max_lines: 0,
                 block_sensitive: false,
                 max_rounds: 3,
+                escalate_after: 1,
             },
         }
     }

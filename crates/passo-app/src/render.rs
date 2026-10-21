@@ -69,12 +69,21 @@ fn task(view: &View) -> String {
     let mut out = String::new();
     let def = view.catalog.stage(stage);
     if let Some(agent) = view.catalog.agent_for(stage) {
+        // A step the cheap model got stuck on asks for the same agent at a stronger tier.
+        let escalated = run
+            .current_step()
+            .filter(|_| stage == Stage::Construir)
+            .and_then(|s| s.tier.clone())
+            .filter(|tier| *tier != agent.model);
+        let (tier, delegate) = match &escalated {
+            Some(tier) => (tier.as_str(), format!("{}-{tier}", agent.name)),
+            None => (agent.model.as_str(), agent.name.clone()),
+        };
         let _ = writeln!(
             out,
-            "# Agente: {} (nível {})\n{}\n",
+            "# Agente: {} (nível {tier})\n{}\n",
             agent.name,
-            agent.model,
-            (view.delegation)(&agent.name)
+            (view.delegation)(&delegate)
         );
         let _ = writeln!(out, "## Papel\n{}\n", agent.body.trim());
     }

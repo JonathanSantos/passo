@@ -408,3 +408,23 @@ fn passo_runs_the_steps_own_test() {
     let out = p.done("com o teste");
     assert!(out.contains("# Agente: revisor"), "{out}");
 }
+
+#[test]
+fn a_stuck_cheap_step_asks_for_the_strong_twin() {
+    let p = Project::new("escalate");
+    let twin = std::fs::read_to_string(p.root.join(".claude/agents/passo-construtor-forte.md")).unwrap();
+    assert!(twin.contains("model: sonnet"), "{twin}");
+    p.app().start("Algo médio", None).unwrap();
+    let brief = p.draft("brief-esc", r#"{"entendimento":"x","escopo":["a"]}"#);
+    p.done(&brief);
+    let plan = p.draft(
+        "plan-esc",
+        r#"{"titulo":"T","criterios":["c"],"passos":[{"titulo":"S","criterios":["C1"]}]}"#,
+    );
+    p.done(&plan);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    std::fs::remove_file(p.root.join("src/lib.txt")).unwrap();
+    let out = p.done("quebrei a checagem");
+    assert!(out.contains("# Agente: construtor (nível forte)"), "{out}");
+    assert!(out.contains("passo-construtor-forte"), "{out}");
+}

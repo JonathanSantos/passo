@@ -76,18 +76,30 @@ pub fn install(app: &App, platforms: &[String], bin: &str) -> Result<Vec<PathBuf
         let Some(platform) = passo_adapters::get(id) else {
             continue;
         };
-        let agents: Vec<AgentSpec> = app
-            .catalog
-            .agents
-            .values()
-            .map(|agent| AgentSpec {
+        let (cheap, strong) = (passo_core::config::TIERS[0], passo_core::config::TIERS[1]);
+        let mut agents: Vec<AgentSpec> = vec![];
+        for agent in app.catalog.agents.values() {
+            agents.push(AgentSpec {
                 name: agent.name.clone(),
                 description: agent.description.clone(),
                 model: app.config.model(&agent.model, id).map(str::to_string),
                 tools: agent.tools.clone(),
                 body: agent.body.clone(),
-            })
-            .collect();
+            });
+            // A cheap agent gets a strong twin for the attempts after it got stuck.
+            if agent.model == cheap {
+                agents.push(AgentSpec {
+                    name: format!("{}-{strong}", agent.name),
+                    description: format!(
+                        "{} Nível {strong}: o Passo chama este quando o nível {cheap} travou num passo.",
+                        agent.description
+                    ),
+                    model: app.config.model(strong, id).map(str::to_string),
+                    tools: agent.tools.clone(),
+                    body: agent.body.clone(),
+                });
+            }
+        }
         let ctx = InstallContext {
             root: &app.layout.root,
             bin,

@@ -378,6 +378,7 @@ impl<'a> Engine<'a> {
             test: s.test.clone(),
             criteria: s.criteria.clone(),
             test_command: s.test_command.clone(),
+            tier: None,
             status: StepStatus::Todo,
             attempts: 0,
             fix: false,
@@ -480,16 +481,34 @@ impl<'a> Engine<'a> {
         }
 
         if !problems.is_empty() {
+            let strong = crate::config::TIERS[1];
             let current = run.current_step_mut().expect("step in progress");
             current.attempts += 1;
             let attempts = current.attempts;
-            run.feedback = Some(problems.join("\n\n"));
+            // Spend the strong model only where the cheap one got stuck, before calling the dev.
+            let escalated = profile.escalate_after > 0 && attempts >= profile.escalate_after && current.tier.is_none();
+            if escalated {
+                current.tier = Some(strong.to_string());
+            }
+            let mut feedback = problems.join("\n\n");
+            if let Some(tier) = &current.tier {
+                feedback.push_str(&format!("\n\nEsta tentativa usa o nível {tier}."));
+            }
+            run.feedback = Some(feedback);
             out.event(
                 run,
                 "step.failed",
                 Actor::Passo,
                 format!("{} não passou (tentativa {attempts}/{max_attempts})", step.id),
             );
+            if escalated {
+                out.event(
+                    run,
+                    "step.escalated",
+                    Actor::Passo,
+                    format!("{} sobe para o nível {strong}", step.id),
+                );
+            }
             if attempts >= max_attempts {
                 let detail = format!(
                     "{} falhou {attempts} vezes. Último problema:\n{}",
@@ -1090,6 +1109,7 @@ fn add_fix_steps(run: &mut Run, fixes: Vec<Fix>) {
             test: fix.test,
             criteria: fix.criteria,
             test_command: fix.test_command,
+            tier: None,
             status: StepStatus::Todo,
             attempts: 0,
             fix: true,

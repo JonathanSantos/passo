@@ -401,7 +401,7 @@ fn stats(run: Option<String>, json: bool) -> Result<String> {
     }
     let mut out = format!("{}\n\n", run.headline());
     out.push_str(&format!(
-        "Tempo total      {}\nVez do dev       {} vez(es), {} esperando\nPassos           {} feitos, {} tentativas que falharam\nVoltas           {} · plano v{} · {} mudança(s) no pedido\nAgente           {} ações · {} negadas pela trava · {} entregas inválidas\n",
+        "Tempo total      {}\nVez do dev       {} vez(es), {} esperando\nPassos           {} feitos, {} tentativas que falharam\nVoltas           {} · plano v{} · {} mudança(s) no pedido\nAgente           {} ações · {} negadas pela trava · {} entregas inválidas\nEscaladas        {}\n",
         duration(m.total_ms),
         m.dev_turns,
         duration(m.dev_wait_ms),
@@ -412,7 +412,8 @@ fn stats(run: Option<String>, json: bool) -> Result<String> {
         m.changes,
         m.tool_calls,
         m.lock_denied,
-        m.invalid_outputs
+        m.invalid_outputs,
+        m.escalations
     ));
     out.push_str("\nEtapa        tempo      tokens\n");
     for s in &m.stages {

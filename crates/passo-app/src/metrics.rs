@@ -59,6 +59,8 @@ pub struct Metrics {
     pub tool_calls: u32,
     pub lock_denied: u32,
     pub invalid_outputs: u32,
+    /// Steps that moved to the strong tier after the cheap one failed.
+    pub escalations: u32,
     pub tokens: Tokens,
     pub by_model: BTreeMap<String, Tokens>,
 }
@@ -113,6 +115,7 @@ pub fn compute(run: &Run, events: &[Event], usage: &[Usage], now: DateTime<Utc>)
             "tool" => m.tool_calls += 1,
             "lock.denied" => m.lock_denied += 1,
             "output.invalid" => m.invalid_outputs += 1,
+            "step.escalated" => m.escalations += 1,
             _ => {}
         }
     }

@@ -499,3 +499,48 @@ fn a_test_command_always_asks_for_approval() {
             .contains("autoriza o Passo a rodar")
     );
 }
+
+#[test]
+fn a_failed_step_escalates_to_the_strong_tier() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    to_build(&mut sim);
+    let mut bad = facts(&["src/task.rs", "tests/t.rs"], true);
+    bad.checks = vec![bad_check("cargo check")];
+    sim.apply(Command::StepDone(bad.clone())).unwrap();
+    assert_eq!(sim.run.current_step().unwrap().tier.as_deref(), Some("forte"));
+    assert!(
+        sim.events
+            .iter()
+            .any(|e| e.kind == "step.escalated" && e.text == "S1 sobe para o nível forte")
+    );
+    assert!(
+        sim.run
+            .feedback
+            .as_deref()
+            .unwrap()
+            .ends_with("Esta tentativa usa o nível forte.")
+    );
+    sim.apply(Command::StepDone(bad.clone())).unwrap();
+    sim.apply(Command::StepDone(bad)).unwrap();
+    assert_eq!(sim.gate(), GateKind::Travado);
+    sim.apply(Command::Approve(Decision::default())).unwrap();
+    let step = sim.run.current_step().unwrap();
+    assert_eq!(
+        (step.attempts, step.tier.as_deref()),
+        (0, Some("forte")),
+        "ok resets attempts and keeps the tier"
+    );
+    assert_eq!(sim.events.iter().filter(|e| e.kind == "step.escalated").count(), 1);
+}
+
+#[test]
+fn pp_never_escalates() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::Pp);
+    let mut bad = facts(&["README.md"], false);
+    bad.checks = vec![bad_check("cargo check")];
+    sim.apply(Command::StepDone(bad.clone())).unwrap();
+    sim.apply(Command::StepDone(bad)).unwrap();
+    assert_eq!(sim.run.current_step().unwrap().tier, None);
+}

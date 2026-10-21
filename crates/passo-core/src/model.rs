@@ -196,6 +196,9 @@ pub struct Step {
     /// The command that runs this step's test; Passo runs it before the step checks.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub test_command: String,
+    /// Model tier for the current attempt when it differs from the agent's (the cheap one already failed here).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<String>,
     pub status: StepStatus,
     pub attempts: u32,
     /// Added by verify or by a rejected delivery, not by the planner.
