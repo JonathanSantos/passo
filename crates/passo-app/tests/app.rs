@@ -428,3 +428,59 @@ fn a_stuck_cheap_step_asks_for_the_strong_twin() {
     assert!(out.contains("# Agente: construtor (nível forte)"), "{out}");
     assert!(out.contains("passo-construtor-forte"), "{out}");
 }
+
+#[test]
+fn invented_evidence_is_refused_and_real_evidence_passes() {
+    let p = Project::new("evidence");
+    p.app().start("Algo pequeno", Some(passo_core::Size::P)).unwrap();
+    let brief = p.draft("brief-ev", r#"{"entendimento":"x","escopo":["a"]}"#);
+    p.done(&brief);
+    let plan = p.draft(
+        "plan-ev",
+        r#"{"titulo":"T","criterios":["tem prova"],"passos":[{"titulo":"S","teste":"prova","criterios":["C1"]}]}"#,
+    );
+    p.done(&plan);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    p.write("tests/a_test.txt", "teste prova_tal\n");
+    let out = p.done("com teste");
+    assert!(out.contains("# Agente: revisor"), "{out}");
+
+    let invented = p.draft(
+        "rev-bad",
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"src/lib.txt:420"}]}"#,
+    );
+    let err = p
+        .app()
+        .done(DoneInput {
+            text: invented,
+            ..Default::default()
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("`criterios[0].evidencia` cita src/lib.txt:420, mas o arquivo tem 1 linha(s)"),
+        "{err}"
+    );
+    let vague = p.draft(
+        "rev-vague",
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"conferi e funciona"}]}"#,
+    );
+    let err = p
+        .app()
+        .done(DoneInput {
+            text: vague,
+            ..Default::default()
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("não cita arquivo, linha nem teste"), "{err}");
+    let app = p.app();
+    assert_eq!(app.metrics(&app.active().unwrap()).unwrap().invalid_outputs, 2);
+
+    let real = p.draft(
+        "rev-ok",
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"`prova_tal` em tests/a_test.txt:1"}]}"#,
+    );
+    let out = p.done(&real);
+    assert!(out.contains("Aceitar a entrega"), "{out}");
+}

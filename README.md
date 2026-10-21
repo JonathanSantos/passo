@@ -17,6 +17,7 @@ Modelos baratos erram menos quando alguém carrega a estrutura por eles. O Passo
 - **Erros precisos**: uma entrega inválida volta com o campo errado ("`passos[2].titulo` está vazio"), não com "inválido".
 - **O Passo roda as checagens**: o agente nunca diz que os testes passaram. Uma falha volta para ele com a saída; na terceira, o Passo chama você.
 - **Um plano forte, uma construção leve**: o planejador e o revisor pedem o nível `forte`; o refinador e o construtor, o `leve`.
+- **Evidência conferida**: cada critério que o revisor diz atendido precisa citar um arquivo, uma linha ou um teste que existam; o Passo confere no repositório.
 - **O modelo forte só onde o barato travou**: um passo que falha sobe para o nível forte na tentativa seguinte (`passo-construtor-forte`), antes de chamar você.
 - **O agente não desiste**: o hook de Stop não deixa ele parar na vez dele.
 

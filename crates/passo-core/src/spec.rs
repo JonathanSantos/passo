@@ -431,6 +431,75 @@ pub fn parse_review(text: &str, criteria: &[String]) -> Result<Review, Invalid> 
     r.finish(Review { criteria: items, notes })
 }
 
+/// Something a review cites as proof: a path (maybe with a line), or a test name in backticks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvidenceRef {
+    pub path: Option<String>,
+    /// The last line cited (`src/x.rs:42-50` cites up to 50).
+    pub line: Option<u32>,
+    pub symbol: Option<String>,
+}
+
+/// Picks the candidates out of an evidence text. Only the form is read here: whether a candidate is really a path
+/// is for the disk to say, so anything with a slash or a file extension is a candidate.
+pub fn evidence_refs(text: &str) -> Vec<EvidenceRef> {
+    let mut refs = vec![];
+    let mut rest = String::new();
+    let mut quoted = text.split('`');
+    if let Some(first) = quoted.next() {
+        rest.push_str(first);
+    }
+    // Odd pieces sit between backticks.
+    for (i, piece) in quoted.enumerate() {
+        if i % 2 == 0 {
+            let inner = piece.trim();
+            match path_ref(inner) {
+                Some(path) => refs.push(path),
+                None if !inner.is_empty() => refs.push(EvidenceRef {
+                    path: None,
+                    line: None,
+                    symbol: Some(inner.to_string()),
+                }),
+                None => {}
+            }
+        } else {
+            rest.push(' ');
+            rest.push_str(piece);
+        }
+    }
+    for word in rest.split(|c: char| c.is_whitespace() || ";,()[]\"'".contains(c)) {
+        if let Some(path) = path_ref(word) {
+            refs.push(path);
+        }
+    }
+    refs
+}
+
+fn path_ref(word: &str) -> Option<EvidenceRef> {
+    let word = word.trim_end_matches([':', '.', '!', '?']);
+    if word.is_empty() || word.contains("://") || word.contains(char::is_whitespace) {
+        return None;
+    }
+    let (path, line) = match word.split_once(':') {
+        Some((path, spec)) => {
+            let last = spec.rsplit('-').next().unwrap_or(spec);
+            match last.parse::<u32>() {
+                Ok(n) if spec.split('-').all(|p| p.parse::<u32>().is_ok()) => (path, Some(n)),
+                _ => (path, None),
+            }
+        }
+        None => (word, None),
+    };
+    let extension = path.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty() && (1..=6).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric())
+    });
+    (path.contains('/') || extension).then(|| EvidenceRef {
+        path: Some(path.to_string()),
+        line,
+        symbol: None,
+    })
+}
+
 /// Parses one question asked mid-run: the first option is the recommended one.
 pub fn question_from_cli(id: String, ask: &str, options: &[String]) -> Result<Question, Invalid> {
     let mut errors = vec![];
@@ -507,7 +576,7 @@ pub const PLAN_TEMPLATE: &str = r#"{
 
 pub const REVIEW_TEMPLATE: &str = r#"{
   "criterios": [
-    { "id": "C1", "ok": true, "evidencia": "tests/x_test.rs: teste_tal cobre; src/x.rs:42" }
+    { "id": "C1", "ok": true, "evidencia": "tests/x_test.rs:12 `prova_tal`; src/x.rs:42" }
   ],
   "observacoes": ["o que você achou além dos critérios (opcional)"]
 }"#;
@@ -551,6 +620,30 @@ mod tests {
             err.0,
             vec!["`passos[2].criterios` cita C5, mas há 3 critério(s)".to_string()]
         );
+    }
+
+    #[test]
+    fn evidence_refs_read_paths_lines_ranges_and_tests() {
+        let refs = evidence_refs(
+            "src/tasks.js:24-30 add(file); tests/x_test.rs: `prioridade padrão` cobre, README.md e src/cli.js:8",
+        );
+        let paths: Vec<(Option<&str>, Option<u32>)> = refs
+            .iter()
+            .filter(|r| r.path.is_some())
+            .map(|r| (r.path.as_deref(), r.line))
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                (Some("src/tasks.js"), Some(30)),
+                (Some("tests/x_test.rs"), None),
+                (Some("README.md"), None),
+                (Some("src/cli.js"), Some(8))
+            ]
+        );
+        assert!(refs.iter().any(|r| r.symbol.as_deref() == Some("prioridade padrão")));
+        assert!(evidence_refs("rodei o comando e funcionou").is_empty());
+        assert!(evidence_refs("veja https://exemplo.com/x.html").is_empty());
     }
 
     #[test]

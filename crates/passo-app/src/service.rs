@@ -287,7 +287,9 @@ impl App {
                 let text = read_input(&input.text)?;
                 self.check_read_only(&run)?;
                 let ids: Vec<String> = run.criteria.iter().map(|c| c.id.clone()).collect();
-                Command::SubmitReview(self.valid(&run, spec::parse_review(&text, &ids))?)
+                let review = self.valid(&run, spec::parse_review(&text, &ids))?;
+                self.valid(&run, self.check_evidence(&run, &review))?;
+                Command::SubmitReview(review)
             }
             stage => bail!("nada a entregar em {}; rode `passo next`", stage.label()),
         };
@@ -641,6 +643,92 @@ impl App {
         }
         facts.checks = self.run_checks(&commands);
         Ok(facts)
+    }
+
+    /// Every criterion the review calls met must cite something Passo can find: a file that exists (and the line,
+    /// when one is cited), or a test name in a test file or in a file the run touched. Cheap models invent evidence.
+    fn check_evidence(&self, run: &Run, review: &spec::Review) -> std::result::Result<(), Invalid> {
+        let root = &self.layout.root;
+        let mut errors = vec![];
+        let mut searchable: Option<Vec<PathBuf>> = None;
+        for (i, item) in review.criteria.iter().enumerate().filter(|(_, item)| item.ok) {
+            let field = format!("`criterios[{i}].evidencia`");
+            let refs = spec::evidence_refs(&item.evidence);
+            if refs.is_empty() {
+                errors.push(format!(
+                    "{field} não cita arquivo, linha nem teste; aponte onde está a prova (arquivo:linha ou `nome_do_teste`)"
+                ));
+                continue;
+            }
+            let mut confirmed = false;
+            let mut wrong_line = None;
+            for r in &refs {
+                if let Some(path) = &r.path {
+                    let file = root.join(path);
+                    if file.is_dir() && r.line.is_none() {
+                        confirmed = true;
+                    } else if file.is_file() {
+                        let lines = std::fs::read_to_string(&file).map(|t| t.lines().count()).unwrap_or(0);
+                        match r.line {
+                            Some(n) if n == 0 || n as usize > lines => {
+                                wrong_line.get_or_insert(format!(
+                                    "{field} cita {path}:{n}, mas o arquivo tem {lines} linha(s)"
+                                ));
+                            }
+                            _ => confirmed = true,
+                        }
+                    }
+                } else if let Some(symbol) = &r.symbol {
+                    let files = searchable.get_or_insert_with(|| self.searchable_files(run));
+                    if files
+                        .iter()
+                        .any(|f| std::fs::read_to_string(f).is_ok_and(|t| t.contains(symbol.as_str())))
+                    {
+                        confirmed = true;
+                    }
+                }
+            }
+            // A cited line that does not exist is invented, even next to a real file.
+            if let Some(wrong) = wrong_line {
+                errors.push(wrong);
+            } else if !confirmed {
+                let cited: Vec<String> = refs
+                    .iter()
+                    .map(|r| match (&r.path, r.line, &r.symbol) {
+                        (Some(p), Some(n), _) => format!("{p}:{n}"),
+                        (Some(p), None, _) => p.clone(),
+                        (None, _, Some(s)) => format!("`{s}`"),
+                        _ => String::new(),
+                    })
+                    .collect();
+                errors.push(format!(
+                    "{field} cita {}, mas nada disso existe no projeto; aponte um arquivo, uma linha ou um teste que existam",
+                    cited.join(", ")
+                ));
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(Invalid(errors))
+        }
+    }
+
+    /// Where a cited test name may live: test files, and the files this run changed.
+    fn searchable_files(&self, run: &Run) -> Vec<PathBuf> {
+        let root = &self.layout.root;
+        let git = self.uses_git(run).then(|| self.git());
+        let tests = globs(&self.config.tests.patterns).ok();
+        let mut files: Vec<String> = crate::infra::project_files(root, git.as_ref())
+            .into_iter()
+            .filter(|f| tests.as_ref().is_some_and(|t| t.is_match(f)))
+            .collect();
+        if let (Some(git), Some(base)) = (&git, run.workspace.as_ref().and_then(|w| w.base.as_deref())) {
+            files.extend(git.numstat(base).unwrap_or_default().into_iter().map(|(path, _)| path));
+        }
+        files.sort();
+        files.dedup();
+        files.into_iter().map(|f| root.join(f)).collect()
     }
 
     fn baseline_path(&self, run: &Run) -> PathBuf {

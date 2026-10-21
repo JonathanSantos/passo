@@ -152,6 +152,11 @@ impl Git {
     }
 
     /// Files staged against HEAD: what this step changed.
+    /// Files git tracks, relative to the repository root.
+    pub fn tracked_files(&self) -> Result<Vec<String>> {
+        Ok(self.output(&["ls-files"])?.lines().map(str::to_string).collect())
+    }
+
     pub fn staged_files(&self) -> Result<Vec<String>> {
         Ok(self
             .output(&["diff", "--cached", "--name-only", "HEAD"])?
@@ -221,4 +226,35 @@ impl Git {
         }
         Ok(())
     }
+}
+
+/// Folders no project listing looks into: tooling, dependencies and build output.
+pub const IGNORED_DIRS: [&str; 6] = [".git", ".passo", "target", "node_modules", "dist", "build"];
+
+/// The project's files, relative to `root`: what git tracks, or a walk of the folders when there is no git.
+pub fn project_files(root: &Path, git: Option<&Git>) -> Vec<String> {
+    let ignored = |path: &str| path.split('/').any(|part| IGNORED_DIRS.contains(&part));
+    if let Some(files) = git.and_then(|g| g.tracked_files().ok()) {
+        return files.into_iter().filter(|f| !ignored(f)).collect();
+    }
+    let mut out = vec![];
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            let Ok(rel) = path.strip_prefix(root) else { continue };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            if ignored(&rel) {
+                continue;
+            }
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                out.push(rel);
+            }
+        }
+    }
+    out.sort();
+    out
 }
