@@ -74,6 +74,7 @@ As métricas saem do log, não de contadores paralelos: o tempo de cada etapa ve
 
 ## Decisões
 
+- **YAML para dados, Markdown para instruções**: `passo.yaml` e os presets são YAML (`serde_yaml_ng`, com `deny_unknown_fields` e merge em camadas sobre o `Mapping`); agentes, etapas e checklists são Markdown com frontmatter YAML lido pelo mesmo parser.
 - **Rust, um binário, sem runtime**: roda em qualquer máquina e em CI sem instalar Node ou Python, e responde aos hooks em milissegundos.
 - **JSON para o que o agente entrega, texto para o que ele lê**: JSON tem erros precisos ("`passos[2].titulo` está vazio"); a tarefa em texto é o que o modelo lê melhor.
 - **Plano validado contra o tamanho**: um modelo barato que planeja 12 passos para um pedido `p` recebe a recusa com o motivo.

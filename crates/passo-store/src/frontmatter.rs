@@ -1,86 +1,89 @@
-//! A tiny frontmatter reader: `key: value` and `key: [a, b]` between `---` lines. Enough for agent, stage and
-//! checklist files, and readable by anyone who has seen a Claude Code agent file.
+//! Markdown files with a YAML frontmatter between `---` lines: agents, stages and checklists. The frontmatter is
+//! real YAML (block lists, quoted text with colons, maps), read by the same parser as `passo.yaml`.
 
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Field {
-    Text(String),
-    List(Vec<String>),
-}
+use serde_yaml_ng::{Mapping, Value};
 
 #[derive(Debug, Clone, Default)]
 pub struct Doc {
-    pub fields: BTreeMap<String, Field>,
+    pub fields: Mapping,
     pub body: String,
 }
 
 impl Doc {
+    fn get(&self, key: &str) -> Option<&Value> {
+        self.fields.get(key)
+    }
+
+    pub fn has(&self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Field names, in file order.
+    pub fn keys(&self) -> Vec<String> {
+        self.fields.keys().map(scalar).collect()
+    }
+
+    /// A field as text; a list is joined with commas.
     pub fn text(&self, key: &str) -> Option<String> {
-        match self.fields.get(key)? {
-            Field::Text(t) => Some(t.clone()),
-            Field::List(items) => Some(items.join(", ")),
+        match self.get(key)? {
+            Value::Null => None,
+            Value::Sequence(items) => Some(items.iter().map(scalar).collect::<Vec<_>>().join(", ")),
+            other => Some(scalar(other)),
         }
     }
 
+    /// A field as a list; a single text is split on commas.
     pub fn list(&self, key: &str) -> Vec<String> {
-        match self.fields.get(key) {
-            Some(Field::List(items)) => items.clone(),
-            Some(Field::Text(t)) if !t.is_empty() => t.split(',').map(|s| s.trim().to_string()).collect(),
-            _ => vec![],
+        match self.get(key) {
+            Some(Value::Sequence(items)) => items.iter().map(scalar).filter(|s| !s.is_empty()).collect(),
+            Some(Value::Null) | None => vec![],
+            Some(other) => scalar(other)
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
         }
     }
 }
 
-fn unquote(s: &str) -> String {
-    let s = s.trim();
-    if s.len() >= 2 && ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\''))) {
-        s[1..s.len() - 1].to_string()
-    } else {
-        s.to_string()
+fn scalar(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.trim().to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::Null => String::new(),
+        other => serde_yaml_ng::to_string(other).unwrap_or_default().trim().to_string(),
     }
 }
 
-pub fn parse(text: &str) -> Doc {
+/// Splits frontmatter from body. An error names the line in the file (the opening `---` is line 1).
+pub fn parse(text: &str) -> Result<Doc, String> {
     let text = text.trim_start_matches('\u{feff}');
+    let plain = || Doc {
+        fields: Mapping::new(),
+        body: text.trim().to_string(),
+    };
     let Some(rest) = text.strip_prefix("---") else {
-        return Doc {
-            fields: BTreeMap::new(),
-            body: text.trim().to_string(),
-        };
+        return Ok(plain());
     };
     let Some(end) = rest.find("\n---") else {
-        return Doc {
-            fields: BTreeMap::new(),
-            body: text.trim().to_string(),
-        };
+        return Ok(plain());
     };
     let head = &rest[..end];
-    let body = rest[end + 4..].trim_start_matches(['-']).trim().to_string();
-    let mut fields = BTreeMap::new();
-    for line in head.lines() {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let key = key.trim().to_string();
-        let value = value.trim();
-        if key.is_empty() || key.starts_with('#') {
-            continue;
+    let body = rest[end + 4..].trim_start_matches('-').trim().to_string();
+    let fields = match serde_yaml_ng::from_str::<Value>(head) {
+        Ok(Value::Mapping(map)) => map,
+        Ok(Value::Null) => Mapping::new(),
+        Ok(_) => return Err("o frontmatter deve ser um mapa de `chave: valor`".into()),
+        Err(e) => {
+            // `head` starts right after the opening `---`, on the same line.
+            let line = e.location().map(|l| l.line()).unwrap_or(1);
+            return Err(format!("frontmatter inválido na linha {line}: {e}"));
         }
-        let field = if value.starts_with('[') && value.ends_with(']') {
-            Field::List(
-                value[1..value.len() - 1]
-                    .split(',')
-                    .map(unquote)
-                    .filter(|s| !s.is_empty())
-                    .collect(),
-            )
-        } else {
-            Field::Text(unquote(value))
-        };
-        fields.insert(key, field);
-    }
-    Doc { fields, body }
+    };
+    Ok(Doc { fields, body })
 }
 
 /// Splits a body by `## heading` into sections; text before the first heading goes under `todos`.
@@ -122,12 +125,38 @@ mod tests {
     fn reads_fields_and_sections() {
         let doc = parse(
             "---\nname: construtor\ntools: [Read, \"Edit\"]\nmodel: leve\n---\nintro\n## pp\ncurto\n## M\nlongo\n",
-        );
+        )
+        .unwrap();
         assert_eq!(doc.text("name").as_deref(), Some("construtor"));
         assert_eq!(doc.list("tools"), vec!["Read", "Edit"]);
         let s = sections(&doc.body);
         assert_eq!(s["todos"], "intro");
         assert_eq!(s["pp"], "curto");
         assert_eq!(s["m"], "longo");
+    }
+
+    #[test]
+    fn block_lists_and_quoted_colons() {
+        let doc = parse("---\ndescription: \"Faz: um passo\"\nchecks:\n  - cargo clippy\n  - cargo test\n---\ncorpo")
+            .unwrap();
+        assert_eq!(doc.text("description").as_deref(), Some("Faz: um passo"));
+        assert_eq!(doc.list("checks"), vec!["cargo clippy", "cargo test"]);
+        assert_eq!(doc.body, "corpo");
+    }
+
+    #[test]
+    fn no_frontmatter_or_empty_one() {
+        let doc = parse("# só corpo").unwrap();
+        assert!(doc.keys().is_empty());
+        assert_eq!(doc.body, "# só corpo");
+        let empty = parse("---\n---\ncorpo").unwrap();
+        assert!(empty.keys().is_empty());
+        assert_eq!(empty.body, "corpo");
+    }
+
+    #[test]
+    fn invalid_yaml_names_the_line() {
+        let err = parse("---\nname: x\nmodel: a: b\n---\n").unwrap_err();
+        assert!(err.contains("linha 3"), "{err}");
     }
 }

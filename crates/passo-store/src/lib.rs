@@ -3,7 +3,7 @@
 //! - [`layout`]: the `.passo/` folder.
 //! - [`runs`]: runs, the active run, plan versions, transcripts.
 //! - [`audit`]: the hash-chained event log.
-//! - [`config`]: `passo.toml` in layers, with `extends`.
+//! - [`config`]: `passo.yaml` in layers, with `extends`.
 //! - [`catalog`]: agents, stage instructions and checklists, built in and overridden by the project.
 
 pub mod assets;

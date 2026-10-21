@@ -1,0 +1,5 @@
+checks:
+  step:
+    - npm run --silent --if-present typecheck
+    - npm run --silent --if-present lint
+  final: [npm test --silent]

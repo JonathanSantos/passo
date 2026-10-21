@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! .passo/
-//!   passo.toml          config (extends, checks, sizes, models)
+//!   passo.yaml          config (extends, checks, sizes, models)
 //!   context.md          project conventions every agent reads (optional)
 //!   agents/<nome>.md    agent overrides and new agents
 //!   stages/<etapa>.md   how a stage is done in this project
@@ -43,7 +43,7 @@ impl Layout {
         self.root.join(DIR)
     }
     pub fn config(&self) -> PathBuf {
-        self.passo().join("passo.toml")
+        self.passo().join(crate::config::FILE)
     }
     pub fn context(&self) -> PathBuf {
         self.passo().join("context.md")

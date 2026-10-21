@@ -87,19 +87,21 @@ impl Catalog {
         };
         for (name, text) in assets::AGENTS {
             catalog
-                .apply_agent(name, frontmatter::parse(text), "embutido")
+                .apply_agent(name, frontmatter::parse(text).expect("built-in agent"), "embutido")
                 .expect("built-in agent");
         }
         for (name, text) in assets::STAGES {
             let stage = Stage::parse(name).expect("built-in stage");
             catalog
-                .apply_stage(stage, frontmatter::parse(text), "embutido")
+                .apply_stage(stage, frontmatter::parse(text).expect("built-in stage"), "embutido")
                 .expect("built-in stage");
         }
         for (name, text) in assets::CHECKLISTS {
-            catalog
-                .checklists
-                .push(checklist(name, frontmatter::parse(text), "embutido"));
+            catalog.checklists.push(checklist(
+                name,
+                frontmatter::parse(text).expect("built-in checklist"),
+                "embutido",
+            ));
         }
         catalog
     }
@@ -107,7 +109,7 @@ impl Catalog {
     pub fn load(layout: &Layout) -> Result<Catalog> {
         let mut catalog = Catalog::builtin();
         for (name, path) in markdown_files(&layout.agents()) {
-            let doc = frontmatter::parse(&std::fs::read_to_string(&path)?);
+            let doc = read_doc(&path)?;
             catalog.apply_agent(&name, doc, &path.display().to_string())?;
         }
         for (name, path) in markdown_files(&layout.stages()) {
@@ -118,11 +120,11 @@ impl Catalog {
                     Stage::ALL.map(|s| s.id()).join(", ")
                 );
             };
-            let doc = frontmatter::parse(&std::fs::read_to_string(&path)?);
+            let doc = read_doc(&path)?;
             catalog.apply_stage(stage, doc, &path.display().to_string())?;
         }
         for (name, path) in markdown_files(&layout.checklists()) {
-            let doc = frontmatter::parse(&std::fs::read_to_string(&path)?);
+            let doc = read_doc(&path)?;
             let item = checklist(&name, doc, &path.display().to_string());
             catalog.checklists.retain(|c| c.name != item.name);
             catalog.checklists.push(item);
@@ -156,7 +158,7 @@ impl Catalog {
                 if let Some(m) = doc.text("model") {
                     agent.model = m;
                 }
-                if doc.fields.contains_key("tools") {
+                if doc.has("tools") {
                     agent.tools = doc.list("tools");
                 }
                 if !doc.body.is_empty() {
@@ -179,10 +181,10 @@ impl Catalog {
     }
 
     fn apply_stage(&mut self, stage: Stage, doc: Doc, source: &str) -> Result<()> {
-        for key in doc.fields.keys() {
+        for key in doc.keys() {
             if ["skip", "enabled", "disabled", "off"].contains(&key.as_str()) {
                 bail!(
-                    "{source}: etapas não podem ser desligadas. Mude como a etapa é feita (agent, checks, instruções) ou use os tamanhos (`[sizes.pp] {} = \"auto\"`).",
+                    "{source}: etapas não podem ser desligadas. Mude como a etapa é feita (agent, checks, instruções) ou use os tamanhos (`sizes: {{ pp: {{ {}: auto }} }}` no passo.yaml).",
                     stage.id()
                 );
             }
@@ -287,6 +289,11 @@ fn checklist(name: &str, doc: Doc, source: &str) -> Checklist {
         body: doc.body,
         source: source.to_string(),
     }
+}
+
+fn read_doc(path: &Path) -> Result<Doc> {
+    let text = std::fs::read_to_string(path)?;
+    frontmatter::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
 }
 
 fn markdown_files(dir: &Path) -> Vec<(String, std::path::PathBuf)> {

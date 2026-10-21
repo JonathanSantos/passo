@@ -1,3 +1,0 @@
-[checks]
-step = ["cargo check --all-targets --quiet"]
-final = ["cargo test --quiet"]

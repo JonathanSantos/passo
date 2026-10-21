@@ -965,7 +965,7 @@ impl<'a> Engine<'a> {
     }
 
     fn proof(&self, run: &Run) -> Proof {
-        // `run.checks` holds the final checks here, wherever they were configured (passo.toml or the stage file).
+        // `run.checks` holds the final checks here, wherever they were configured (passo.yaml or the stage file).
         let final_ok = !run.checks.is_empty() && run.checks.iter().all(|c| c.ok);
         let reviewed = !run.criteria.is_empty() && run.criteria.iter().all(|c| c.ok == Some(true));
         match (final_ok, reviewed) {

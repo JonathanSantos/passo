@@ -37,8 +37,8 @@ impl Project {
         project.git(&["config", "user.name", "t"]);
         setup::init(&project.root, &["claude".into()], "passo").unwrap();
         std::fs::write(
-            project.root.join(".passo/passo.toml"),
-            "[checks]\nstep = [\"test -f src/lib.txt\"]\nfinal = [\"true\"]\n",
+            project.root.join(".passo/passo.yaml"),
+            "checks:\n  step: [test -f src/lib.txt]\n  final: [\"true\"]\n",
         )
         .unwrap();
         project.git(&["add", "-A"]);
@@ -344,4 +344,38 @@ fn dirty_tree_refuses_to_start() {
     p.write("src/wip.txt", "wip\n");
     let err = p.app().start("Algo", None).unwrap_err().to_string();
     assert!(err.contains("src/wip.txt"), "{err}");
+}
+
+#[test]
+fn init_writes_yaml_with_the_detected_preset() {
+    let root = std::env::temp_dir().join(format!("passo-app-init-yaml-{}", std::process::id()));
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("package.json"), "{}").unwrap();
+    setup::init(&root, &[], "passo").unwrap();
+    let text = std::fs::read_to_string(root.join(".passo/passo.yaml")).unwrap();
+    assert!(text.contains("extends: [preset:node]"), "{text}");
+    assert!(
+        text.contains("  # step: []") && text.contains("  # final: []"),
+        "the preset's checks are not replaced"
+    );
+    let app = App::open(&root).unwrap();
+    assert_eq!(app.config.checks.final_, vec!["npm test --silent".to_string()]);
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn an_old_toml_config_stops_init_and_open() {
+    let root = std::env::temp_dir().join(format!("passo-app-legacy-{}", std::process::id()));
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(root.join(".passo")).unwrap();
+    std::fs::write(root.join(".passo/passo.toml"), "default_size = \"p\"\n").unwrap();
+    let message = passo_store::config::TOML_MIGRATION;
+    assert_eq!(setup::init(&root, &[], "passo").err().unwrap().to_string(), message);
+    assert_eq!(App::open(&root).err().unwrap().to_string(), message);
+    assert!(
+        !root.join(".passo/passo.yaml").exists(),
+        "nothing is written before the check"
+    );
+    std::fs::remove_dir_all(root).ok();
 }

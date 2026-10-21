@@ -2,26 +2,33 @@
 
 Tudo se estende com arquivos dentro de `.passo/`, sem tocar no binário. Uma regra vale para todos: **você muda como uma etapa é feita, nunca se ela acontece**. A ordem Refinar → Planejar → Construir → Verificar → Entregar e a aprovação da entrega ficam no core.
 
+Dois formatos, cada um para uma coisa:
+
+- **Dados em YAML**: `.passo/passo.yaml` guarda os números e as escolhas do projeto (checagens, git, limites, tamanhos, modelos) e herda de outros arquivos com `extends`.
+- **Instruções em Markdown**: agentes, etapas, checklists e as convenções do projeto são `.md`. O frontmatter (YAML entre `---`) leva só os dados daquele arquivo (`extends`, `model`, `tools`, `agent`, `checks`, `match`); o corpo é a instrução. Números do projeto e dos tamanhos nunca vão no frontmatter: ficam no `passo.yaml`.
+
+Para acrescentar comportamento (um agente novo, uma etapa feita de outro jeito, um checklist), escreva um `.md`.
+
 | Quero…                                       | Arquivo                              |
 | -------------------------------------------- | ------------------------------------ |
-| herdar a config de um time ou de uma stack   | `.passo/passo.toml` → `extends`      |
+| herdar a config de um time ou de uma stack   | `.passo/passo.yaml` → `extends`      |
 | contar as convenções do projeto aos agentes | `.passo/context.md`                  |
 | ajustar ou trocar um agente                  | `.passo/agents/<nome>.md`            |
 | mudar como uma etapa é feita                 | `.passo/stages/<etapa>.md`           |
 | trazer um checklist do domínio               | `.passo/checklists/<nome>.md`        |
-| mudar quem faz cada etapa num tamanho        | `.passo/passo.toml` → `[sizes.<t>]`  |
-| trocar o modelo de um nível                  | `.passo/passo.toml` → `[models]`     |
+| mudar quem faz cada etapa num tamanho        | `.passo/passo.yaml` → `sizes.<t>`    |
+| trocar o modelo de um nível                  | `.passo/passo.yaml` → `models`       |
 
 Depois de mexer em agentes, rode `passo sync`: ele reescreve os arquivos de cada plataforma (`.claude/agents`, `.github/agents`). `passo doctor` mostra de onde veio cada coisa.
 
 ## `extends`: configuração em camadas
 
-```toml
-# .passo/passo.toml
-extends = ["preset:rust", "~/time/passo.toml", "../plataforma/passo.toml"]
+```yaml
+# .passo/passo.yaml
+extends: [preset:rust, ~/time/passo.yaml, ../plataforma/passo.yaml]
 ```
 
-Da mais fraca para a mais forte: padrões do Passo, `~/.passo/passo.toml`, cada item de `extends` (na ordem) e por fim o próprio arquivo. **Tabelas se juntam chave a chave, listas e valores substituem.** Um arquivo de `extends` pode ter o seu próprio `extends`. Ciclos dão erro.
+Da mais fraca para a mais forte: padrões do Passo, `~/.passo/passo.yaml`, cada item de `extends` (na ordem) e por fim o próprio arquivo. Um caminho relativo é relativo ao arquivo que o cita. **Mapas se juntam chave a chave, listas e valores substituem.** Um arquivo de `extends` pode ter o seu próprio `extends`. Ciclos dão erro.
 
 Presets embutidos: `preset:rust`, `preset:node`, `preset:python`, `preset:go`. Eles só definem as checagens. O `passo init` escolhe o preset pela stack que encontrar.
 
@@ -81,19 +88,19 @@ Cada componente novo ganha uma story com os estados vazio, carregando e erro.
 
 ## Tamanhos (o fast travel)
 
-```toml
-[sizes.p]
-verificar = "auto"     # só as checagens, sem revisor
-approve_plan = false   # perguntas em aberto ainda chegam ao dev
-
-[sizes.pp]
-max_files = 5
-max_lines = 200
+```yaml
+sizes:
+  p:
+    verificar: auto       # só as checagens, sem revisor
+    approve_plan: false   # perguntas em aberto ainda chegam ao dev
+  pp:
+    max_files: 5
+    max_lines: 200
 ```
 
 | Campo                         | O que faz                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------- |
-| `refinar`, `planejar`, `verificar` | `"agente"` ou `"auto"`. Construir é sempre um agente; entregar é sempre o Passo, com você aceitando |
+| `refinar`, `planejar`, `verificar` | `agente` ou `auto`. Construir é sempre um agente; entregar é sempre o Passo, com você aceitando |
 | `approve_plan`                | pede a aprovação do plano. Perguntas abertas chegam ao dev de qualquer jeito |
 | `max_questions`, `max_steps`  | limites para o refinamento e o plano                                      |
 | `require_tests`               | um passo com `teste` precisa mudar um arquivo de teste                    |
@@ -118,11 +125,11 @@ Quando uma palavra de `match` aparece no pedido, o checklist entra no planejamen
 
 ## Modelos
 
-```toml
-[models]
-leve  = { claude = "haiku",  copilot = "Claude Haiku 5.5" }
-forte = { claude = "sonnet", copilot = "Claude Sonnet 5.5" }
-barato = { claude = "haiku", copilot = "GPT-5 mini" }
+```yaml
+models:
+  leve: { claude: haiku, copilot: Claude Haiku 5.5 }
+  forte: { claude: sonnet, copilot: Claude Sonnet 5.5 }
+  barato: { claude: haiku, copilot: GPT-5 mini }
 ```
 
 O agente pede um nível; cada plataforma recebe o nome de modelo dela. Os valores acima são os padrões, e cada plataforma traz os seus: você só escreve o que muda. Para rodar tudo no modelo mais barato, aponte `forte` para o mesmo modelo de `leve`.

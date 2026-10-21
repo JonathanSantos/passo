@@ -119,12 +119,13 @@ passo ui
 
 Tudo se estende com arquivos em `.passo/`, sem tocar no binário: você muda **como** uma etapa é feita, nunca **se** ela acontece.
 
-```toml
-# .passo/passo.toml
-extends = ["preset:rust", "~/time/passo.toml"]
+```yaml
+# .passo/passo.yaml
+extends: [preset:rust, ~/time/passo.yaml]
 
-[sizes.p]
-verificar = "auto"
+sizes:
+  p:
+    verificar: auto
 ```
 
 ```markdown

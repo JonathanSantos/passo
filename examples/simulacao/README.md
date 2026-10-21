@@ -5,12 +5,12 @@ Como medir o Passo com modelos baratos: o mesmo pedido, um agente por braço, um
 ## Protocolo
 
 1. Copie [`examples/tarefas`](../tarefas) para uma pasta fora deste repositório, uma por braço, e faça `git init` e o primeiro commit em cada uma.
-2. Em cada cópia: `passo init --agent claude`, ajuste as checagens em `.passo/passo.toml`, escreva `.passo/context.md` e commite:
+2. Em cada cópia: `passo init --agent claude`, ajuste as checagens em `.passo/passo.yaml`, escreva `.passo/context.md` e commite:
 
-   ```toml
-   [checks]
-   step = ["npm run -s check", "npm test --silent"]
-   final = ["npm test --silent"]
+   ```yaml
+   checks:
+     step: [npm run -s check, npm test --silent]
+     final: [npm test --silent]
    ```
 
 3. Dê a cada agente o mesmo prompt: o pedido abaixo, a instrução de ler `.claude/skills/passo/SKILL.md`, `--size m`, e parar na vez do dev.

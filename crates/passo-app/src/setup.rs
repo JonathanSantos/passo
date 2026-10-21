@@ -39,6 +39,7 @@ pub fn init(root: &Path, platforms: &[String], bin: &str) -> Result<InitReport> 
         }
     }
     let layout = Layout::new(root);
+    passo_store::config::check_legacy(&layout)?;
     let store = Store::new(layout.clone());
     store.init()?;
     let mut written = vec![];
@@ -47,16 +48,16 @@ pub fn init(root: &Path, platforms: &[String], bin: &str) -> Result<InitReport> 
         let mut text = assets::CONFIG_TEMPLATE.to_string();
         if let Some(preset) = preset {
             text = text.replace(
-                "# extends = [\"preset:rust\", \"../time/passo.toml\"]",
-                &format!("extends = [\"preset:{preset}\"]"),
+                "# extends: [preset:rust, ../time/passo.yaml]",
+                &format!("extends: [preset:{preset}]"),
             );
             // The preset brings the checks; empty lists here would replace them.
             text = text
-                .replace("step = []\n", "# step = []\n")
-                .replace("final = []\n", "# final = []\n");
+                .replace("  step: []\n", "  # step: []\n")
+                .replace("  final: []\n", "  # final: []\n");
         }
         std::fs::write(layout.config(), text)?;
-        written.push(PathBuf::from(".passo/passo.toml"));
+        written.push(PathBuf::from(".passo/passo.yaml"));
     }
     if !layout.context().exists() {
         std::fs::write(layout.context(), CONTEXT_TEMPLATE)?;

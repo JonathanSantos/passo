@@ -258,7 +258,7 @@ fn init(agents: Vec<String>) -> Result<String> {
         }
     };
     out.push_str(&format!(
-        "Checagens por passo: {}\nChecagens finais:    {}\nAjuste em .passo/passo.toml e conte as convenções do projeto em .passo/context.md.\n",
+        "Checagens por passo: {}\nChecagens finais:    {}\nAjuste em .passo/passo.yaml e conte as convenções do projeto em .passo/context.md.\n",
         show(&app.config.checks.step),
         show(&app.config.checks.final_)
     ));

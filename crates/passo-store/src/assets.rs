@@ -29,17 +29,17 @@ pub const CHECKLISTS: [(&str, &str); 4] = [
 ];
 
 pub const PRESETS: [(&str, &str); 4] = [
-    ("rust", asset!("presets/rust.toml")),
-    ("node", asset!("presets/node.toml")),
-    ("python", asset!("presets/python.toml")),
-    ("go", asset!("presets/go.toml")),
+    ("rust", asset!("presets/rust.yaml")),
+    ("node", asset!("presets/node.yaml")),
+    ("python", asset!("presets/python.yaml")),
+    ("go", asset!("presets/go.yaml")),
 ];
 
 /// The skill every platform installs: how to drive a run with the CLI.
 pub const SKILL: &str = asset!("skill/SKILL.md");
 
 /// The starting config `passo init` writes.
-pub const CONFIG_TEMPLATE: &str = asset!("passo.toml");
+pub const CONFIG_TEMPLATE: &str = asset!("passo.yaml");
 
 pub fn preset(name: &str) -> Option<&'static str> {
     PRESETS.iter().find(|(n, _)| *n == name).map(|(_, text)| *text)
