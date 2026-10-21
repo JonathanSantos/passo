@@ -233,14 +233,8 @@ mod tests {
         build.steps.push(crate::model::Step {
             id: "S1".into(),
             title: "t".into(),
-            detail: String::new(),
-            files: vec![],
-            test: String::new(),
             status: crate::model::StepStatus::Doing,
-            attempts: 0,
-            fix: false,
-            summary: String::new(),
-            commit: None,
+            ..Default::default()
         });
         assert_eq!(judge(&write("/p/src/a.rs"), root, Some(&build)), Verdict::Allow);
         assert!(matches!(

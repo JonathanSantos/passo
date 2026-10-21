@@ -24,7 +24,7 @@ Modelos baratos erram menos quando alguém carrega a estrutura por eles. O Passo
 | Etapa         | Quem                 | Termina com                                                         |
 | ------------- | -------------------- | ------------------------------------------------------------------- |
 | **Refinar**   | refinador            | o pedido refinado: entendimento, escopo, suposições e perguntas com opções |
-| **Planejar**  | planejador           | critérios de aceite e passos pequenos, cada um com o teste que o prova. **Você aprova** |
+| **Planejar**  | planejador           | critérios de aceite e passos pequenos, cada um com o teste que o prova e os critérios que atende; critério sem passo é recusado. **Você aprova** |
 | **Construir** | construtor           | um passo por vez; o Passo roda as checagens e faz um commit por passo |
 | **Verificar** | o Passo e o revisor  | a suíte completa, depois cada critério conferido com evidência     |
 | **Entregar**  | o Passo              | o resumo com o grau de prova. **Você aceita**, e o branch é juntado |

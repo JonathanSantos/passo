@@ -1,7 +1,7 @@
 ---
 agent: revisor
 ---
-1. Rode o comando de diff do contexto e leia tudo o que mudou.
+1. Rode o comando de diff do contexto e leia tudo o que mudou. O contexto diz quais passos atendem cada critério e os commits deles: comece por ali.
 2. Para cada critério: procure a evidência (teste, `arquivo:linha`, saída de um comando).
 3. Procure o caso que nenhum teste cobre e anote em `observacoes`.
 4. Entregue a revisão em JSON.

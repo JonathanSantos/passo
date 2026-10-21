@@ -213,8 +213,12 @@
     const run = s.run;
     if (!run || (!run.steps.length && !run.criteria.length)) return ($("plan").innerHTML = "");
     const mark = { done: ["✓", "ok"], doing: ["▸", "doing"], todo: ["·", ""] };
-    const steps = run.steps.map((x) => `<li><span class="mark ${mark[x.status][1]}">${mark[x.status][0]}</span><span class="id">${esc(x.id)}</span><span class="body">${esc(x.title)}${x.fix ? ' <span class="tag">ajuste</span>' : ""}${x.summary ? `<div class="meta">${esc(x.summary)}</div>` : ""}</span>${x.commit ? `<span class="hash">${esc(x.commit.slice(0, 7))}</span>` : ""}</li>`).join("");
-    const crit = run.criteria.map((c) => `<li><span class="mark ${c.ok === true ? "ok" : c.ok === false ? "bad" : ""}">${c.ok === true ? "✓" : c.ok === false ? "✗" : "·"}</span><span class="id">${esc(c.id)}</span><span class="body">${esc(c.text)}${c.evidence ? `<div class="meta">${esc(c.evidence)}</div>` : ""}</span></li>`).join("");
+    const by = (id) => {
+      const who = run.steps.filter((x) => (x.criteria || []).includes(id)).map((x) => x.id + (x.commit ? " " + x.commit.slice(0, 7) : ""));
+      return who.length ? `<div class="meta">← ${esc(who.join(", "))}</div>` : "";
+    };
+    const steps = run.steps.map((x) => `<li><span class="mark ${mark[x.status][1]}">${mark[x.status][0]}</span><span class="id">${esc(x.id)}</span><span class="body">${esc(x.title)}${x.fix ? ' <span class="tag">ajuste</span>' : ""}${x.criteria && x.criteria.length ? `<div class="meta">atende ${esc(x.criteria.join(", "))}</div>` : ""}${x.summary ? `<div class="meta">${esc(x.summary)}</div>` : ""}</span>${x.commit ? `<span class="hash">${esc(x.commit.slice(0, 7))}</span>` : ""}</li>`).join("");
+    const crit = run.criteria.map((c) => `<li><span class="mark ${c.ok === true ? "ok" : c.ok === false ? "bad" : ""}">${c.ok === true ? "✓" : c.ok === false ? "✗" : "·"}</span><span class="id">${esc(c.id)}</span><span class="body">${esc(c.text)}${by(c.id)}${c.evidence ? `<div class="meta">${esc(c.evidence)}</div>` : ""}</span></li>`).join("");
     $("plan").innerHTML = `<div class="cols"><div><h2>Passos</h2><ul class="list">${steps}</ul></div><div><h2>Critérios de aceite</h2><ul class="list">${crit}</ul></div></div>`;
   }
 

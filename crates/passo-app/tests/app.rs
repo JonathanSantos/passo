@@ -126,7 +126,7 @@ fn standard_run_branches_commits_and_merges() {
     let plan = p.draft(
         "plan",
         r#"{"titulo":"Prioridade","criterios":["tem prioridade"],
-        "passos":[{"titulo":"Campo","arquivos":["src/lib.txt"],"teste":"prioridade_test"}]}"#,
+        "passos":[{"titulo":"Campo","arquivos":["src/lib.txt"],"teste":"prioridade_test","criterios":["C1"]}]}"#,
     );
     let out = p.done(&plan);
     assert!(out.contains("# Vez do dev") && out.contains("A ★ média"), "{out}");
@@ -149,6 +149,8 @@ fn standard_run_branches_commits_and_merges() {
     p.done(&plan);
     p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
 
+    let out = p.app().next().unwrap();
+    assert!(out.contains("Atende: C1 tem prioridade"), "{out}");
     // Build: a step with a test must touch a test file.
     p.write("src/lib.txt", "tarefas com prioridade\n");
     let out = p.done("campo prioridade");
@@ -156,6 +158,10 @@ fn standard_run_branches_commits_and_merges() {
     p.write("tests/prioridade_test.txt", "ok\n");
     let out = p.done("campo prioridade com teste");
     assert!(out.contains("# Agente: revisor"), "{out}");
+    assert!(
+        out.contains("C1 ← S1 ["),
+        "verify shows which steps met each criterion: {out}"
+    );
     let review = p.draft(
         "review",
         r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"tests/prioridade_test.txt"}]}"#,

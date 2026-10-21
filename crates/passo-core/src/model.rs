@@ -170,15 +170,16 @@ pub struct Gate {
     pub at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StepStatus {
+    #[default]
     Todo,
     Doing,
     Done,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Step {
     pub id: String,
     pub title: String,
@@ -189,6 +190,9 @@ pub struct Step {
     /// The test that proves this step; empty when the step has nothing to test (docs, config).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub test: String,
+    /// Ids of the criteria this step meets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub criteria: Vec<String>,
     pub status: StepStatus,
     pub attempts: u32,
     /// Added by verify or by a rejected delivery, not by the planner.

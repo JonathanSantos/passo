@@ -110,7 +110,8 @@ impl<'a> Sim<'a> {
 const BRIEF: &str = r#"{"entendimento":"Tarefas ganham prioridade","escopo":["campo prioridade"],
   "perguntas":[{"pergunta":"Qual o padrão?","opcoes":[{"texto":"média","porque":"neutro"},{"texto":"baixa"}]}]}"#;
 const PLAN: &str = r#"{"titulo":"Prioridade","criterios":["toda tarefa tem prioridade","filtro funciona"],
-  "passos":[{"titulo":"Modelo","arquivos":["src/task.rs"],"teste":"task tem prioridade"},{"titulo":"Filtro","teste":"filtra"}]}"#;
+  "passos":[{"titulo":"Modelo","arquivos":["src/task.rs"],"teste":"task tem prioridade","criterios":["C1"]},
+            {"titulo":"Filtro","teste":"filtra","criterios":["C2"]}]}"#;
 
 fn to_build(sim: &mut Sim) {
     sim.apply(Command::SubmitBrief(parse_brief(BRIEF, 1).unwrap())).unwrap();
@@ -387,4 +388,46 @@ fn the_same_inputs_give_the_same_run() {
         serde_json::to_string(&sim.run).unwrap()
     };
     assert_eq!(play(), play());
+}
+
+#[test]
+fn every_criterion_needs_a_step() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    sim.apply(Command::SubmitBrief(parse_brief(BRIEF, 1).unwrap())).unwrap();
+    let orphan = r#"{"titulo":"t","criterios":["a","b"],"passos":[{"titulo":"x","criterios":["C1"]}]}"#;
+    let err = sim.apply(Command::SubmitPlan(parse_plan(orphan).unwrap())).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("o critério C2 não tem passo que o atenda; acrescente um passo ou junte C2 a outro critério"),
+        "{err}"
+    );
+    assert_eq!(sim.run.stage, Stage::Planejar);
+}
+
+#[test]
+fn steps_keep_their_criteria_and_review_fixes_carry_the_failed_one() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::P);
+    to_build(&mut sim);
+    assert_eq!(sim.run.steps[0].criteria, vec!["C1"]);
+    sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
+        .unwrap();
+    sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/b.rs"], true)))
+        .unwrap();
+    let failing =
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"ok"},{"id":"C2","ok":false,"evidencia":"falta"}]}"#;
+    sim.apply(Command::SubmitReview(
+        parse_review(failing, &["C1".into(), "C2".into()]).unwrap(),
+    ))
+    .unwrap();
+    assert_eq!(sim.run.current_step().unwrap().criteria, vec!["C2"]);
+}
+
+#[test]
+fn the_automatic_plan_meets_every_criterion() {
+    let config = config();
+    let sim = Sim::start(&config, Size::Pp);
+    let ids: Vec<&str> = sim.run.criteria.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(sim.run.steps[0].criteria, ids);
 }

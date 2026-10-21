@@ -150,6 +150,15 @@ fn context(view: &View) -> String {
                 if !step.files.is_empty() {
                     let _ = writeln!(out, "Arquivos: {}", step.files.join(", "));
                 }
+                let meets: Vec<String> = run
+                    .criteria
+                    .iter()
+                    .filter(|c| step.criteria.contains(&c.id))
+                    .map(|c| format!("{} {}", c.id, c.text))
+                    .collect();
+                if !meets.is_empty() {
+                    let _ = writeln!(out, "Atende: {}", meets.join(" · "));
+                }
                 if step.test.is_empty() {
                     let _ = writeln!(out, "Teste: este passo não pede teste novo.");
                 } else {
@@ -181,6 +190,13 @@ fn context(view: &View) -> String {
         }
         Stage::Verificar => {
             plan_overview(run, &mut out);
+            let map = criteria_map(run);
+            if !map.is_empty() {
+                let _ = writeln!(out, "Quem atende cada critério (comece pelos commits deles):");
+                for line in map {
+                    let _ = writeln!(out, "  {line}");
+                }
+            }
             if let Some(base) = run.workspace.as_ref().and_then(|w| w.base.as_ref()) {
                 let _ = writeln!(
                     out,
@@ -393,6 +409,9 @@ fn plan_overview(run: &Run, out: &mut String) {
             if !s.test.is_empty() {
                 extra.push(format!("teste: {}", s.test));
             }
+            if !s.criteria.is_empty() {
+                extra.push(format!("atende {}", s.criteria.join(", ")));
+            }
             let extra = if extra.is_empty() {
                 String::new()
             } else {
@@ -401,6 +420,30 @@ fn plan_overview(run: &Run, out: &mut String) {
             let _ = writeln!(out, "  {mark} {} {}{extra}", s.id, s.title);
         }
     }
+}
+
+/// `C1 ← S1 [a1b2c3d], S3 [e4f5a6b]`: the steps that met each criterion, with their commits.
+fn criteria_map(run: &Run) -> Vec<String> {
+    run.criteria
+        .iter()
+        .map(|c| {
+            let steps: Vec<String> = run
+                .steps
+                .iter()
+                .filter(|s| s.criteria.contains(&c.id))
+                .map(|s| match &s.commit {
+                    Some(hash) => format!("{} [{}]", s.id, &hash[..hash.len().min(7)]),
+                    None => s.id.clone(),
+                })
+                .collect();
+            let who = if steps.is_empty() {
+                "nenhum passo".to_string()
+            } else {
+                steps.join(", ")
+            };
+            format!("{} ← {who}", c.id)
+        })
+        .collect()
 }
 
 fn notes(run: &Run, out: &mut String) {

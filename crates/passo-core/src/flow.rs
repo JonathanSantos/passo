@@ -303,6 +303,22 @@ impl<'a> Engine<'a> {
                 run.size.id()
             )])));
         }
+        // On a re-plan the steps already done keep meeting criteria under the old numbering, so only a first plan
+        // is held to "every criterion has a step".
+        if !run.steps.iter().any(|s| s.status == StepStatus::Done) {
+            let orphans: Vec<String> = (1..=plan.criteria.len())
+                .map(|n| format!("C{n}"))
+                .filter(|id| !plan.steps.iter().any(|s| s.criteria.contains(id)))
+                .map(|id| {
+                    format!(
+                        "o critério {id} não tem passo que o atenda; acrescente um passo ou junte {id} a outro critério"
+                    )
+                })
+                .collect();
+            if !orphans.is_empty() {
+                return Err(FlowError::Invalid(Invalid(orphans)));
+            }
+        }
         run.feedback = None;
         self.accept_plan(run, plan, Actor::Agent, out, now);
         Ok(())
@@ -331,6 +347,7 @@ impl<'a> Engine<'a> {
             detail: s.detail.clone(),
             files: s.files.clone(),
             test: s.test.clone(),
+            criteria: s.criteria.clone(),
             status: StepStatus::Todo,
             attempts: 0,
             fix: false,
@@ -547,7 +564,12 @@ impl<'a> Engine<'a> {
                 .collect::<Vec<_>>()
                 .join("\n\n");
             run.checks = results;
-            self.back_to_build(run, vec![("Corrigir as checagens finais".into(), detail)], out, now);
+            self.back_to_build(
+                run,
+                vec![Fix::plain("Corrigir as checagens finais".into(), detail)],
+                out,
+                now,
+            );
             return Ok(());
         }
         run.checks = results;
@@ -578,17 +600,17 @@ impl<'a> Engine<'a> {
                 criterion.evidence = item.evidence.clone();
             }
         }
-        let failing: Vec<(String, String)> = run
+        // A criterion the review could not confirm is fixed with a test that proves it.
+        let failing: Vec<Fix> = run
             .criteria
             .iter()
             .filter(|c| c.ok == Some(false))
-            .map(|c| (format!("Atender {}: {}", c.id, c.text), c.evidence.clone()))
-            .collect();
-        let tests: Vec<String> = run
-            .criteria
-            .iter()
-            .filter(|c| c.ok == Some(false))
-            .map(|c| format!("um teste que prove {}: {}", c.id, c.text))
+            .map(|c| Fix {
+                title: format!("Atender {}: {}", c.id, c.text),
+                detail: c.evidence.clone(),
+                test: format!("um teste que prove {}: {}", c.id, c.text),
+                criteria: vec![c.id.clone()],
+            })
             .collect();
         let ok = run.criteria.len() - failing.len();
         out.event(
@@ -606,18 +628,13 @@ impl<'a> Engine<'a> {
         if failing.is_empty() {
             self.enter(run, Stage::Entregar, out, now);
         } else {
-            let first = run.steps.len();
             self.back_to_build(run, failing, out, now);
-            // A criterion the review could not confirm is fixed with a test that proves it.
-            for (step, test) in run.steps[first..].iter_mut().zip(tests) {
-                step.test = test;
-            }
         }
         Ok(())
     }
 
     /// Verify found problems: each becomes a fix step. Past the round limit, the dev decides.
-    fn back_to_build(&self, run: &mut Run, fixes: Vec<(String, String)>, out: &mut Outcome, now: DateTime<Utc>) {
+    fn back_to_build(&self, run: &mut Run, fixes: Vec<Fix>, out: &mut Outcome, now: DateTime<Utc>) {
         run.rounds += 1;
         add_fix_steps(run, fixes);
         run.feedback = Some("A verificação achou problemas; cada um virou um passo de correção.".into());
@@ -758,7 +775,10 @@ impl<'a> Engine<'a> {
             GateKind::Aceitar => {
                 self.record(run, Actor::Dev, ChangeKind::Recusa, text.clone(), None, None, now);
                 run.gate = None;
-                add_fix_steps(run, vec![(format!("Ajustar a entrega: {text}"), String::new())]);
+                add_fix_steps(
+                    run,
+                    vec![Fix::plain(format!("Ajustar a entrega: {text}"), String::new())],
+                );
                 run.feedback = Some(format!("O dev recusou a entrega: {text}"));
                 out.event(run, "delivery.rejected", Actor::Dev, text);
                 self.enter(run, Stage::Construir, out, now);
@@ -989,18 +1009,38 @@ impl Outcome {
     }
 }
 
-fn add_fix_steps(run: &mut Run, fixes: Vec<(String, String)>) {
+/// A correction step that verify or a rejected delivery asks for.
+struct Fix {
+    title: String,
+    detail: String,
+    test: String,
+    criteria: Vec<String>,
+}
+
+impl Fix {
+    fn plain(title: String, detail: String) -> Fix {
+        Fix {
+            title,
+            detail,
+            test: String::new(),
+            criteria: vec![],
+        }
+    }
+}
+
+fn add_fix_steps(run: &mut Run, fixes: Vec<Fix>) {
     if let Some(step) = run.current_step_mut() {
         step.status = StepStatus::Todo;
     }
-    for (title, detail) in fixes {
+    for fix in fixes {
         let id = format!("S{}", run.steps.len() + 1);
         run.steps.push(Step {
             id,
-            title,
-            detail,
+            title: fix.title,
+            detail: fix.detail,
             files: vec![],
-            test: String::new(),
+            test: fix.test,
+            criteria: fix.criteria,
             status: StepStatus::Todo,
             attempts: 0,
             fix: true,
@@ -1052,6 +1092,7 @@ fn auto_plan(run: &Run) -> Plan {
     };
     let mut criteria = vec![run.request.clone()];
     criteria.extend(changes);
+    let count = criteria.len();
     Plan {
         title: run.request.chars().take(80).collect(),
         criteria,
@@ -1060,6 +1101,8 @@ fn auto_plan(run: &Run) -> Plan {
             detail: String::new(),
             files: vec![],
             test: String::new(),
+            // The single step of an automatic plan meets every criterion.
+            criteria: (1..=count).map(|n| format!("C{n}")).collect(),
         }],
         notes: String::new(),
     }

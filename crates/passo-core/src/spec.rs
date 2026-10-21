@@ -73,6 +73,9 @@ pub struct PlanStep {
     pub files: Vec<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub test: String,
+    /// Ids of the criteria this step meets (`C1`, `C2`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub criteria: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -340,6 +343,7 @@ pub fn parse_plan(text: &str) -> Result<Plan, Invalid> {
             detail: r.text(s, &path, "detalhe", false),
             files: r.list(s, &path, "arquivos", false),
             test: r.text(s, &path, "teste", false),
+            criteria: criterion_refs(&mut r, s, &path, criteria.len()),
         });
     }
     let notes = r.text(&root, "", "notas", false);
@@ -349,6 +353,39 @@ pub fn parse_plan(text: &str) -> Result<Plan, Invalid> {
         steps,
         notes,
     })
+}
+
+/// Reads a step's `criterios`: `"C1"`, `"c1"`, `"1"` or `1` all mean C1. A reference past the plan's criteria is
+/// an error that says how many there are.
+fn criterion_refs(r: &mut Reader, at: &Value, path: &str, count: usize) -> Vec<String> {
+    let items = match at.get("criterios") {
+        None | Some(Value::Null) => return vec![],
+        Some(Value::Array(items)) => items.clone(),
+        Some(other) => vec![other.clone()],
+    };
+    let mut out = vec![];
+    for item in items {
+        let number = match &item {
+            Value::Number(n) => n.as_u64().map(|n| n as usize),
+            Value::String(s) => s.trim().trim_start_matches(['C', 'c']).parse().ok(),
+            _ => None,
+        };
+        match number {
+            Some(n) if (1..=count).contains(&n) => {
+                let id = format!("C{n}");
+                if !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+            Some(n) => r
+                .errors
+                .push(format!("`{path}.criterios` cita C{n}, mas há {count} critério(s)")),
+            None => r
+                .errors
+                .push(format!("`{path}.criterios` deve listar ids de critérios, como \"C1\"")),
+        }
+    }
+    out
 }
 
 /// Parses the review and checks that it answers every criterion, and nothing else.
@@ -456,7 +493,8 @@ pub const PLAN_TEMPLATE: &str = r#"{
       "titulo": "o que este passo faz",
       "detalhe": "como, se ajudar (opcional)",
       "arquivos": ["src/arquivo.ext"],
-      "teste": "o teste que prova este passo (vazio se não há o que testar)"
+      "teste": "o teste que prova este passo (vazio se não há o que testar)",
+      "criterios": ["C1"]
     }
   ],
   "notas": "decisões de design (opcional)"
@@ -494,6 +532,20 @@ mod tests {
         let err = parse_plan("{\"titulo\":\"t\",\"criterios\":[],\"passos\":[{\"arquivos\":[\"a\"]}]}").unwrap_err();
         assert!(err.0.iter().any(|e| e.contains("`criterios`")));
         assert!(err.0.iter().any(|e| e.contains("`passos[0].titulo`")));
+    }
+
+    #[test]
+    fn step_criteria_are_normalized_and_checked() {
+        let plan =
+            parse_plan(r#"{"titulo":"t","criterios":["a","b"],"passos":[{"titulo":"x","criterios":["c2", 1, "C1"]}]}"#)
+                .unwrap();
+        assert_eq!(plan.steps[0].criteria, vec!["C2", "C1"]);
+        let err = parse_plan(r#"{"titulo":"t","criterios":["a","b","c"],"passos":[{"titulo":"x"},{"titulo":"y"},{"titulo":"z","criterios":["C5"]}]}"#)
+            .unwrap_err();
+        assert_eq!(
+            err.0,
+            vec!["`passos[2].criterios` cita C5, mas há 3 critério(s)".to_string()]
+        );
     }
 
     #[test]
