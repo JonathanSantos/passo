@@ -573,7 +573,15 @@ fn project_map(view: &View, out: &mut String) {
         match node.kind {
             NodeKind::Project => out.push_str("  projeto:\n"),
             NodeKind::Area => {
-                let mut head = format!("  {} ({})", node.id, node.paths.join(", "));
+                // An attached project's paths are shown from this project's root: `../api/src/store.ts`.
+                let origin = node
+                    .id
+                    .split_once('/')
+                    .and_then(|(name, _)| view.config.projects.iter().find(|p| p.name == name))
+                    .map(|p| format!("{}/", p.path.trim_end_matches('/')))
+                    .unwrap_or_default();
+                let paths: Vec<String> = node.paths.iter().map(|p| format!("{origin}{p}")).collect();
+                let mut head = format!("  {} ({})", node.id, paths.join(", "));
                 if !node.depends_on.is_empty() {
                     head.push_str(&format!(" ← depende de {}", node.depends_on.join(", ")));
                 }
@@ -645,6 +653,8 @@ pub struct MapView<'a> {
     pub current: Option<&'a passo_core::map::Map>,
     /// Areas that changed since they were written: the ones to look at first.
     pub changed: &'a [String],
+    /// Attached projects: `(name, tree)`, read-only.
+    pub attached: &'a [(String, String)],
     pub template: &'a str,
     pub bin: &'a str,
 }
@@ -668,6 +678,13 @@ pub fn map_task(view: &MapView) -> String {
          5. Só leia: nada de escrever, instalar ou gerar arquivos no projeto. O Passo confere no git.\n\n",
     );
     let _ = writeln!(out, "## Árvore do projeto\n{}\n", view.tree.trim_end());
+    for (name, tree) in view.attached {
+        let _ = writeln!(
+            out,
+            "## Projeto anexado {name} (só leitura)\nQuando uma área daqui depende de uma área de {name}, cite em `depende_de` com o prefixo (`{name}/armazenamento`). O mapa de {name} é feito lá, com o passo map de lá.\n{}\n",
+            tree.trim_end()
+        );
+    }
     if let Some(map) = view.current {
         out.push_str("## O mapa atual (atualize o que mudou, mantenha o resto)\n");
         for area in &map.areas {

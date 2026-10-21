@@ -156,6 +156,20 @@ pub fn dev_command_refusal(command: &str) -> String {
 }
 
 pub fn judge(tool: &ToolUse, root: &Path, activity: Activity) -> Verdict {
+    judge_with(tool, root, &[], activity)
+}
+
+/// `judge`, with attached projects: roots Passo reads and never writes, during a run or a mapping.
+pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: Activity) -> Verdict {
+    if !matches!(activity, Activity::Idle)
+        && tool.kind == ToolKind::Write
+        && let Some(attached) = read_only.iter().find(|r| tool.paths.iter().any(|p| p.starts_with(r)))
+    {
+        return Verdict::Deny(format!(
+            "{} é um projeto anexado: o Passo só o lê. Mude-o com o Passo de lá, num run próprio.",
+            attached.display()
+        ));
+    }
     if tool.kind == ToolKind::Exec
         && let Some(command) = &tool.command
         && let Some(dev) = dev_command_in(command)
@@ -371,5 +385,33 @@ mod tests {
         assert_eq!(dev_command_in("passo map --cancel"), Some("map --cancel"));
         assert_eq!(dev_command_in("passo map"), None);
         assert!(judge_stop(Activity::Mapping).is_some());
+    }
+
+    #[test]
+    fn attached_projects_are_read_only_while_busy() {
+        let root = Path::new("/p");
+        let attached = vec![PathBuf::from("/api")];
+        let mut run = run_at(Stage::Construir);
+        run.steps.push(crate::model::Step {
+            id: "S1".into(),
+            status: crate::model::StepStatus::Doing,
+            ..Default::default()
+        });
+        assert!(matches!(
+            judge_with(&write("/api/src/x.ts"), root, &attached, Activity::Run(&run)),
+            Verdict::Deny(_)
+        ));
+        assert!(matches!(
+            judge_with(&write("/api/src/x.ts"), root, &attached, Activity::Mapping),
+            Verdict::Deny(_)
+        ));
+        assert_eq!(
+            judge_with(&write("/api/src/x.ts"), root, &attached, Activity::Idle),
+            Verdict::Allow
+        );
+        assert_eq!(
+            judge_with(&write("/p/src/a.rs"), root, &attached, Activity::Run(&run)),
+            Verdict::Allow
+        );
     }
 }

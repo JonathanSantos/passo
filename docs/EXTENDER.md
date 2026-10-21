@@ -149,6 +149,18 @@ Testes em `test/tasks.test.js`, com `node:test`, um `describe` por comando, sem 
 
 O `projeto.md` aceita `sources` e `commit`; uma lib, `tags`, `sources` e `commit`. Chave desconhecida ou `depends_on` para área que não existe dão erro com o arquivo e a linha. Edite à mão à vontade: o que o Passo confere a mais é o que o agente entrega com `passo map`. O `context.md` continua acima do mapa: é o que você escreve e o mapa não substitui. `passo doctor` diz se há mapa, quantas áreas e de quando ele é.
 
+### Projetos anexados
+
+Quando um pedido depende de outro repositório ao lado, anexe-o no `passo.yaml`:
+
+```yaml
+projects:
+  - name: api
+    path: ../api
+```
+
+O Passo lê o mapa de `../api/.passo/map/` com os ids prefixados (`api/armazenamento`), e uma área daqui pode citar `depends_on: [api/armazenamento]`. As áreas anexadas nunca casam os arquivos daqui: chegam ao contexto por dependência ou pelas palavras do pedido, mostradas a partir daqui (`api/armazenamento (../api/src/store.ts)`). O projeto anexado é só leitura: durante um run ou um mapeamento, a trava nega escrita nele. O mapa dele se faz lá, com o `passo map` de lá; sem mapa, o `start` e o `doctor` avisam e seguem.
+
 ## Checklists de domínio
 
 ```markdown

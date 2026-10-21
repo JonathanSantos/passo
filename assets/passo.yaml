@@ -37,3 +37,9 @@ limits:
 # models:
 #   leve: { claude: haiku, copilot: Claude Haiku 5.5 }
 #   forte: { claude: sonnet, copilot: Claude Sonnet 5.5 }
+
+# Projetos anexados: repositórios ao lado de que os pedidos dependem. O Passo lê o mapa deles
+# (com os ids prefixados: api/armazenamento) e nunca escreve neles.
+# projects:
+#   - name: api
+#     path: ../api

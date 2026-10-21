@@ -594,6 +594,9 @@ fn doctor() -> Result<String> {
         }
     ));
     out.push_str(&format!("Mapa do projeto: {}\n", app.map_summary()));
+    for warning in app.attached_warnings() {
+        out.push_str(&format!("  {}\n", warning.trim_start_matches("Aviso: ")));
+    }
     if let Ok(Some(map)) = &app.map
         && let Some(stale) = app.map_staleness(map)
     {

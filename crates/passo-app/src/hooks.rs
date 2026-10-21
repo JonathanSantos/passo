@@ -116,7 +116,11 @@ fn decide(
                 return Ok(HookReply::Allow);
             };
             let root = std::fs::canonicalize(&app.layout.root).unwrap_or(app.layout.root.clone());
-            let verdict = lock::judge(&tool, &root, activity);
+            let attached: Vec<std::path::PathBuf> = crate::service::attached_roots(&app.layout.root, &app.config)
+                .into_iter()
+                .map(|(_, r)| r)
+                .collect();
+            let verdict = lock::judge_with(&tool, &root, &attached, activity);
             let mut warning = None;
             if mapping {
                 let (kind, text) = match &verdict {

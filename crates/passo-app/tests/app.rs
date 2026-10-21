@@ -870,3 +870,80 @@ fn an_area_the_review_flags_keeps_its_commit_and_gets_a_note() {
         tarefas.body
     );
 }
+
+/// A project with `../<attached>` attached as `api`; `mapped` gives the attached project a one-area map.
+fn with_attached(name: &str, mapped: bool) -> (Project, PathBuf) {
+    let p = Project::new(name);
+    let attached = p
+        .root
+        .parent()
+        .unwrap()
+        .join(format!("passo-app-api-{name}-{}", std::process::id()));
+    std::fs::remove_dir_all(&attached).ok();
+    std::fs::create_dir_all(attached.join("src")).unwrap();
+    std::fs::write(attached.join("src/x.ts"), "export const x = 1;\n").unwrap();
+    if mapped {
+        std::fs::create_dir_all(attached.join(".passo/map/areas")).unwrap();
+        std::fs::write(
+            attached.join(".passo/map/areas/x.md"),
+            "---\npaths: [src/x.ts]\n---\nO armazenamento da API.\n",
+        )
+        .unwrap();
+    }
+    let folder = attached.file_name().unwrap().to_str().unwrap().to_string();
+    let config = std::fs::read_to_string(p.root.join(".passo/passo.yaml")).unwrap();
+    std::fs::write(
+        p.root.join(".passo/passo.yaml"),
+        format!("{config}projects:\n  - name: api\n    path: ../{folder}\n"),
+    )
+    .unwrap();
+    p.write(".passo/map/projeto.md", "---\n---\nStack: texto puro\n");
+    p.write(
+        ".passo/map/areas/tarefas.md",
+        "---\npaths: [src/lib.txt]\ndepends_on: [api/x]\ntags: [tarefas]\n---\nAs tarefas.\n",
+    );
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-qm", "anexado"]);
+    (p, attached)
+}
+
+#[test]
+fn an_attached_projects_map_is_read_with_a_prefix_and_never_written() {
+    let (p, attached) = with_attached("attached", true);
+    let app = p.app();
+    let map = app.map.as_ref().unwrap().as_ref().unwrap();
+    assert!(
+        map.areas.iter().any(|a| a.id == "api/x"),
+        "{:?}",
+        map.areas.iter().map(|a| &a.id).collect::<Vec<_>>()
+    );
+    p.app().start("Adicionar prioridade às tarefas", None).unwrap();
+    let brief = p.draft(
+        "brief-att",
+        r#"{"entendimento":"prioridade","escopo":["a"],"arquivos":["src/lib.txt"]}"#,
+    );
+    let out = p.done(&brief);
+    let folder = attached.file_name().unwrap().to_str().unwrap();
+    assert!(
+        out.contains(&format!("api/x (../{folder}/src/x.ts)")),
+        "planning hops to the attached area: {out}"
+    );
+    let denied = p.hook(
+        HookEvent::PreToolUse,
+        tool(
+            &p.root,
+            "Write",
+            serde_json::json!({"file_path": attached.join("src/x.ts")}),
+        ),
+    );
+    assert!(denied.unwrap().contains("projeto anexado"));
+    std::fs::remove_dir_all(attached).ok();
+}
+
+#[test]
+fn an_attached_project_without_a_map_is_a_warning() {
+    let (p, attached) = with_attached("attached-nomap", false);
+    let out = p.app().start("Algo", None).unwrap();
+    assert!(out.contains("projeto anexado api sem mapa"), "{out}");
+    std::fs::remove_dir_all(attached).ok();
+}

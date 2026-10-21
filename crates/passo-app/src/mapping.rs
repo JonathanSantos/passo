@@ -87,6 +87,15 @@ impl App {
             .and_then(|m| self.map_staleness(m))
             .map(|s| s.areas.into_iter().filter(|(_, c)| *c).map(|(id, _)| id).collect())
             .unwrap_or_default();
+        let attached: Vec<(String, String)> = crate::service::attached_roots(&self.layout.root, &self.config)
+            .into_iter()
+            .filter(|(_, root)| root.is_dir())
+            .map(|(name, root)| {
+                let git = crate::infra::Git::new(&root);
+                let tree = crate::tree::build(&root, git.is_repo().then_some(&git), &self.config, 40);
+                (name, tree)
+            })
+            .collect();
         let agent = self.catalog.agents.get("explorador");
         crate::render::map_task(&crate::render::MapView {
             agent,
@@ -94,6 +103,7 @@ impl App {
             tree: &tree,
             current: current.as_ref(),
             changed: &changed,
+            attached: &attached,
             template: MAP_TEMPLATE,
             bin: &self.bin,
         })

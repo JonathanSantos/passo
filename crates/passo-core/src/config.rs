@@ -275,6 +275,18 @@ pub struct Config {
     /// Model tiers the agents ask for, per platform: `{ leve = { <plataforma> = "<modelo>" } }`. Each platform
     /// fills in its own defaults for [`TIERS`]; the config only has to name what differs.
     pub models: BTreeMap<String, BTreeMap<String, String>>,
+    /// Repositories next to this one that requests depend on: read-only for Passo, their map read with a prefix.
+    pub projects: Vec<AttachedProject>,
+}
+
+/// Another repository this project depends on (`../api`). Passo reads its map and never writes to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttachedProject {
+    /// The prefix its map's ids get: `api/armazenamento`.
+    pub name: String,
+    /// Relative to this project's root, or absolute.
+    pub path: String,
 }
 
 /// The built-in model tiers: a cheap one and a strong one. Projects may add their own.
@@ -291,6 +303,7 @@ impl Default for Config {
             tests: Tests::default(),
             sizes: Size::ALL.into_iter().map(|s| (s, Profile::defaults(s))).collect(),
             models: BTreeMap::new(),
+            projects: vec![],
         }
     }
 }

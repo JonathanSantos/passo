@@ -65,6 +65,36 @@ pub fn load(layout: &Layout) -> Result<Option<Map>> {
     Ok(Some(map))
 }
 
+/// The project's map plus each attached project's, their ids prefixed with the project's name (`api/armazenamento`,
+/// and so their dependencies and libs). An attached project without a map adds nothing.
+pub fn load_all(layout: &Layout, attached: &[(String, PathBuf)]) -> Result<Option<Map>> {
+    let mut map = load(layout)?;
+    for (name, root) in attached {
+        let Some(other) = load(&Layout::new(root))? else {
+            continue;
+        };
+        let prefix = |id: &str| {
+            if id.contains('/') {
+                id.to_string()
+            } else {
+                format!("{name}/{id}")
+            }
+        };
+        let merged = map.get_or_insert_with(Map::default);
+        for mut area in other.areas {
+            area.id = prefix(&area.id);
+            area.depends_on = area.depends_on.iter().map(|d| prefix(d)).collect();
+            area.libs = area.libs.iter().map(|l| prefix(l)).collect();
+            merged.areas.push(area);
+        }
+        for mut lib in other.libs {
+            lib.id = prefix(&lib.id);
+            merged.libs.push(lib);
+        }
+    }
+    Ok(map)
+}
+
 fn read_node(path: &Path, id: &str, kind: NodeKind) -> Result<Node> {
     let text = std::fs::read_to_string(path)?;
     let doc = frontmatter::parse(&text).map_err(|e| anyhow!("{}: {e}", path.display()))?;

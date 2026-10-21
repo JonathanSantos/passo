@@ -101,7 +101,8 @@ impl App {
         let catalog = Catalog::load(&layout)?;
         let mut config = loaded.config;
         fill_platform_models(&mut config);
-        let map = passo_store::map::load(&layout).map_err(|e| format!("{e:#}"));
+        let attached = attached_roots(&layout.root, &config);
+        let map = passo_store::map::load_all(&layout, &attached).map_err(|e| format!("{e:#}"));
         Ok(App {
             store: Store::new(layout.clone()),
             layout,
@@ -212,12 +213,10 @@ impl App {
         self.store.set_current(Some(&id))?;
         self.write_tree(&run);
         let run = self.persist(run, out, None)?;
-        let stale = self.map_stale_line(&run);
-        let text = self.next_text(&run);
-        Ok(match stale {
-            Some(line) => format!("{line}\n{text}"),
-            None => text,
-        })
+        let mut lines: Vec<String> = self.attached_warnings();
+        lines.extend(self.map_stale_line(&run));
+        lines.push(self.next_text(&run));
+        Ok(lines.join("\n"))
     }
 
     /// Lists the repository tree for the run (on start, and again when the dev changes the request).
@@ -298,6 +297,22 @@ impl App {
             Some(warning) => format!("{warning}\n{text}"),
             None => text,
         }
+    }
+
+    /// One line per attached project that has no map yet.
+    pub fn attached_warnings(&self) -> Vec<String> {
+        self.config
+            .projects
+            .iter()
+            .zip(attached_roots(&self.layout.root, &self.config))
+            .filter(|(_, (_, root))| !Layout::new(root).project_map().join("areas").is_dir())
+            .map(|(p, _)| {
+                format!(
+                    "Aviso: projeto anexado {} sem mapa: rode passo map em {}",
+                    p.name, p.path
+                )
+            })
+            .collect()
     }
 
     /// One line when the project map was ignored, for the dev and the agent.
@@ -1066,6 +1081,19 @@ fn fill_platform_models(config: &mut Config) {
             }
         }
     }
+}
+
+/// Attached projects as `(name, root)`, their paths resolved against this project's root (and canonical when they
+/// exist, so they compare with the paths hooks report).
+pub(crate) fn attached_roots(root: &Path, config: &Config) -> Vec<(String, PathBuf)> {
+    config
+        .projects
+        .iter()
+        .map(|p| {
+            let path = root.join(&p.path);
+            (p.name.clone(), std::fs::canonicalize(&path).unwrap_or(path))
+        })
+        .collect()
 }
 
 fn draft(run: &Run, kind: &'static str, actor: Actor, text: String) -> EventDraft {
