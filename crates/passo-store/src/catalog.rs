@@ -129,7 +129,11 @@ impl Catalog {
         }
         catalog.context = std::fs::read_to_string(layout.context())
             .ok()
-            .filter(|t| !t.trim().is_empty());
+            .map(|t| strip_comments(&t))
+            .filter(|t| {
+                t.lines()
+                    .any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+            });
         catalog.validate()?;
         Ok(catalog)
     }
@@ -247,6 +251,24 @@ impl Catalog {
             .filter(|c| c.matches.iter().any(|m| contains_word(&text, &m.to_lowercase())))
             .collect()
     }
+}
+
+/// Drops `<!-- … -->` blocks: the template's guidance is for the dev, not for agents.
+fn strip_comments(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("<!--") {
+        out.push_str(&rest[..start]);
+        match rest[start..].find("-->") {
+            Some(end) => rest = &rest[start + end + 3..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.trim().to_string()
 }
 
 fn contains_word(text: &str, word: &str) -> bool {

@@ -220,8 +220,6 @@ pub struct Config {
     pub sizes: BTreeMap<Size, Profile>,
     /// Model tiers the agents ask for (`leve`, `forte`), per platform: `{ leve = { claude = "haiku" } }`.
     pub models: BTreeMap<String, BTreeMap<String, String>>,
-    /// Platforms installed in this project (`claude`, `copilot`).
-    pub platforms: Vec<String>,
 }
 
 impl Default for Config {
@@ -244,7 +242,6 @@ impl Default for Config {
                 ("leve".to_string(), tier("haiku", "Claude Haiku 5.5")),
                 ("forte".to_string(), tier("sonnet", "Claude Sonnet 5.5")),
             ]),
-            platforms: vec![],
         }
     }
 }

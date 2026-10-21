@@ -427,6 +427,48 @@ pub fn question_from_cli(id: String, ask: &str, options: &[String]) -> Result<Qu
     })
 }
 
+/// What the agent fills in at Refinar. Kept next to the parser so the two never drift apart.
+pub const BRIEF_TEMPLATE: &str = r#"{
+  "entendimento": "o que o dev quer, em 1 a 3 frases",
+  "tamanho": "m",
+  "escopo": ["o que entra"],
+  "fora_do_escopo": ["o que fica de fora"],
+  "suposicoes": ["o que você assumiu sem perguntar"],
+  "arquivos": ["caminho/que/o/pedido/toca"],
+  "perguntas": [
+    {
+      "pergunta": "a dúvida que muda o resultado",
+      "porque": "o que muda conforme a resposta",
+      "opcoes": [
+        { "texto": "opção recomendada", "porque": "por que é a melhor" },
+        { "texto": "outra opção", "porque": "quando ela seria melhor" }
+      ],
+      "recomendada": 1
+    }
+  ]
+}"#;
+
+pub const PLAN_TEMPLATE: &str = r#"{
+  "titulo": "nome curto da entrega",
+  "criterios": ["comportamento verificável 1", "comportamento verificável 2"],
+  "passos": [
+    {
+      "titulo": "o que este passo faz",
+      "detalhe": "como, se ajudar (opcional)",
+      "arquivos": ["src/arquivo.ext"],
+      "teste": "o teste que prova este passo (vazio se não há o que testar)"
+    }
+  ],
+  "notas": "decisões de design (opcional)"
+}"#;
+
+pub const REVIEW_TEMPLATE: &str = r#"{
+  "criterios": [
+    { "id": "C1", "ok": true, "evidencia": "tests/x_test.rs: teste_tal cobre; src/x.rs:42" }
+  ],
+  "observacoes": ["o que você achou além dos critérios (opcional)"]
+}"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;

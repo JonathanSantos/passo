@@ -58,6 +58,8 @@ pub struct StepFacts {
     pub empty_ok: bool,
     /// False when the project has no git: diff facts are unknown and not judged.
     pub measured: bool,
+    /// Something the agent saw outside the step, kept for the dev.
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -445,6 +447,9 @@ impl<'a> Engine<'a> {
 
         if let Some(current) = run.current_step_mut() {
             current.summary = facts.summary.clone();
+        }
+        if let Some(note) = facts.note.as_ref().filter(|n| !n.trim().is_empty()) {
+            run.notes.push(format!("{}: {}", step.id, note.trim()));
         }
         let over_files = profile.max_files > 0 && facts.files_total > profile.max_files;
         let over_lines = profile.max_lines > 0 && facts.lines_total > profile.max_lines;

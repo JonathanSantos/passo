@@ -45,6 +45,7 @@ fn facts(files: &[&str], tests: bool) -> StepFacts {
         sensitive: vec![],
         empty_ok: false,
         measured: true,
+        note: None,
     }
 }
 

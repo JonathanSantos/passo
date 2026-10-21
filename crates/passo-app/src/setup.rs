@@ -1,0 +1,114 @@
+//! `passo init` and `passo sync`: create `.passo/`, pick a preset from the stack, install the platforms.
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Result, bail};
+use passo_adapters::{AgentSpec, InstallContext};
+use passo_store::{Layout, Store, assets};
+
+use crate::service::App;
+
+pub struct InitReport {
+    pub written: Vec<PathBuf>,
+    pub preset: Option<&'static str>,
+}
+
+/// Guesses the stack from the files at the root.
+pub fn detect_preset(root: &Path) -> Option<&'static str> {
+    [
+        ("Cargo.toml", "rust"),
+        ("package.json", "node"),
+        ("pyproject.toml", "python"),
+        ("requirements.txt", "python"),
+        ("go.mod", "go"),
+    ]
+    .into_iter()
+    .find(|(file, _)| root.join(file).exists())
+    .map(|(_, preset)| preset)
+}
+
+const CONTEXT_TEMPLATE: &str = "# Convenções do projeto\n\n<!--\nTodo agente do Passo lê este arquivo. Escreva aqui o que um dev novo precisaria saber:\n- onde fica o quê (pastas, camadas)\n- como se escrevem os testes\n- bibliotecas que o time usa (e as que evita)\n- idioma de nomes e comentários\nApague este comentário quando preencher.\n-->\n";
+
+pub fn init(root: &Path, platforms: &[String], bin: &str) -> Result<InitReport> {
+    for id in platforms {
+        if passo_adapters::get(id).is_none() {
+            bail!(
+                "plataforma `{id}` desconhecida (há: {})",
+                passo_adapters::ids().join(", ")
+            );
+        }
+    }
+    let layout = Layout::new(root);
+    let store = Store::new(layout.clone());
+    store.init()?;
+    let mut written = vec![];
+    let preset = detect_preset(root);
+    if !layout.config().exists() {
+        let mut text = assets::CONFIG_TEMPLATE.to_string();
+        if let Some(preset) = preset {
+            text = text.replace(
+                "# extends = [\"preset:rust\", \"../time/passo.toml\"]",
+                &format!("extends = [\"preset:{preset}\"]"),
+            );
+            // The preset brings the checks; empty lists here would replace them.
+            text = text
+                .replace("step = []\n", "# step = []\n")
+                .replace("final = []\n", "# final = []\n");
+        }
+        std::fs::write(layout.config(), text)?;
+        written.push(PathBuf::from(".passo/passo.toml"));
+    }
+    if !layout.context().exists() {
+        std::fs::write(layout.context(), CONTEXT_TEMPLATE)?;
+        written.push(PathBuf::from(".passo/context.md"));
+    }
+    let app = App::at(layout)?;
+    written.extend(install(&app, platforms, bin)?);
+    Ok(InitReport { written, preset })
+}
+
+/// Writes the platform files from the current catalog (re-run after editing `.passo/agents`).
+pub fn install(app: &App, platforms: &[String], bin: &str) -> Result<Vec<PathBuf>> {
+    let skill = assets::SKILL.replace("{{bin}}", "passo");
+    let mut written = vec![];
+    for id in platforms {
+        let Some(platform) = passo_adapters::get(id) else {
+            continue;
+        };
+        let agents: Vec<AgentSpec> = app
+            .catalog
+            .agents
+            .values()
+            .map(|agent| AgentSpec {
+                name: agent.name.clone(),
+                description: agent.description.clone(),
+                model: app.config.model(&agent.model, id).map(str::to_string),
+                tools: agent.tools.clone(),
+                body: agent.body.clone(),
+            })
+            .collect();
+        let ctx = InstallContext {
+            root: &app.layout.root,
+            bin,
+            skill: &skill,
+            agents: &agents,
+        };
+        written.extend(platform.install(&ctx)?);
+    }
+    Ok(written)
+}
+
+/// How hooks should call Passo: `passo` when it is on the PATH, else the absolute path of this binary.
+pub fn hook_bin() -> String {
+    let on_path = std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join("passo").is_file()))
+        .unwrap_or(false);
+    if on_path {
+        return "passo".into();
+    }
+    std::env::current_exe()
+        .ok()
+        .map(|p| p.display().to_string())
+        .map(|p| if p.contains(' ') { format!("\"{p}\"") } else { p })
+        .unwrap_or_else(|| "passo".into())
+}
