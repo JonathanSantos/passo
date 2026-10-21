@@ -46,6 +46,7 @@ fn facts(files: &[&str], tests: bool) -> StepFacts {
         empty_ok: false,
         measured: true,
         note: None,
+        unplanned: vec![],
     }
 }
 
@@ -211,6 +212,23 @@ fn failing_checks_retry_then_call_the_dev() {
     assert_eq!(sim.run.current_step().unwrap().attempts, 0);
     assert_eq!(sim.run.feedback.as_deref(), Some("Dica do dev: use o enum"));
     assert!(sim.run.changes.iter().any(|c| c.kind == ChangeKind::Dica));
+}
+
+#[test]
+fn files_outside_the_plan_are_noted_for_review() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    to_build(&mut sim);
+    let mut f = facts(&["src/task.rs", "tests/a.rs", "tarefas.json"], true);
+    f.unplanned = vec!["tarefas.json".into()];
+    sim.apply(Command::StepDone(f)).unwrap();
+    assert!(
+        sim.run
+            .notes
+            .iter()
+            .any(|n| n.contains("S1 mudou arquivos fora do plano: tarefas.json"))
+    );
+    assert!(sim.events.iter().any(|e| e.kind == "step.unplanned"));
 }
 
 #[test]

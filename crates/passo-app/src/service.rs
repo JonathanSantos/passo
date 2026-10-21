@@ -500,6 +500,14 @@ impl App {
             facts.files_total = counted.len();
             facts.lines_total = counted.iter().map(|(_, n)| n).sum();
             facts.tests_touched = facts.files.iter().any(|f| tests.is_match(f));
+            if let Some(step) = run.current_step().filter(|s| !s.files.is_empty()) {
+                facts.unplanned = facts
+                    .files
+                    .iter()
+                    .filter(|f| !tests.is_match(f) && !step.files.iter().any(|p| f.ends_with(p.as_str())))
+                    .cloned()
+                    .collect();
+            }
             facts.sensitive = numstat
                 .iter()
                 .filter(|(p, _)| sensitive.is_match(p))

@@ -60,6 +60,8 @@ pub struct StepFacts {
     pub measured: bool,
     /// Something the agent saw outside the step, kept for the dev.
     pub note: Option<String>,
+    /// Files this step changed that the plan did not list for it (tests excluded).
+    pub unplanned: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -450,6 +452,15 @@ impl<'a> Engine<'a> {
         }
         if let Some(note) = facts.note.as_ref().filter(|n| !n.trim().is_empty()) {
             run.notes.push(format!("{}: {}", step.id, note.trim()));
+        }
+        if !facts.unplanned.is_empty() {
+            let text = format!(
+                "{} mudou arquivos fora do plano: {}",
+                step.id,
+                facts.unplanned.join(", ")
+            );
+            out.event(run, "step.unplanned", Actor::Passo, text.clone());
+            run.notes.push(format!("{text}. Confira se deviam entrar."));
         }
         let over_files = profile.max_files > 0 && facts.files_total > profile.max_files;
         let over_lines = profile.max_lines > 0 && facts.lines_total > profile.max_lines;
