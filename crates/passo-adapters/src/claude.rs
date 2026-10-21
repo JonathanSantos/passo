@@ -147,11 +147,11 @@ impl Platform for Claude {
                 );
             }
         }
-        let mut seen = BTreeSet::new();
-        let mut out = vec![];
+        let mut messages = std::collections::BTreeMap::new();
         for file in files {
-            read_usage(&file, &mut seen, &mut out);
+            read_usage(&file, &mut messages);
         }
+        let mut out: Vec<Usage> = messages.into_values().collect();
         out.sort_by_key(|u| u.t);
         out
     }
@@ -161,7 +161,7 @@ impl Platform for Claude {
     }
 }
 
-fn read_usage(path: &Path, seen: &mut BTreeSet<String>, out: &mut Vec<Usage>) {
+fn read_usage(path: &Path, messages: &mut std::collections::BTreeMap<String, Usage>) {
     let Ok(file) = std::fs::File::open(path) else { return };
     for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
         if !line.contains("\"usage\"") {
@@ -175,15 +175,12 @@ fn read_usage(path: &Path, seen: &mut BTreeSet<String>, out: &mut Vec<Usage>) {
         }
         let message = &entry["message"];
         let usage = &message["usage"];
-        // A message streams into several lines with the same id and the same usage: count it once.
+        // A message streams into several lines with the same id; the counts grow, so keep the largest.
         let id = message
             .get("id")
             .and_then(Value::as_str)
             .map(str::to_string)
             .unwrap_or_else(|| line.clone());
-        if !seen.insert(id) {
-            continue;
-        }
         let Some(t) = entry
             .get("timestamp")
             .and_then(Value::as_str)
@@ -193,14 +190,23 @@ fn read_usage(path: &Path, seen: &mut BTreeSet<String>, out: &mut Vec<Usage>) {
             continue;
         };
         let n = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
-        out.push(Usage {
+        let usage = Usage {
             t,
             model: message.get("model").and_then(Value::as_str).unwrap_or("?").to_string(),
             input: n("input_tokens"),
             output: n("output_tokens"),
             cache_read: n("cache_read_input_tokens"),
             cache_write: n("cache_creation_input_tokens"),
-        });
+        };
+        messages
+            .entry(id)
+            .and_modify(|seen: &mut Usage| {
+                seen.input = seen.input.max(usage.input);
+                seen.output = seen.output.max(usage.output);
+                seen.cache_read = seen.cache_read.max(usage.cache_read);
+                seen.cache_write = seen.cache_write.max(usage.cache_write);
+            })
+            .or_insert(usage);
     }
 }
 
@@ -261,7 +267,7 @@ mod tests {
                 r#"{{"type":"assistant","timestamp":"2026-10-20T12:00:00Z","message":{{"id":"{id}","model":"claude-haiku-5-5","usage":{{"input_tokens":10,"output_tokens":{out},"cache_read_input_tokens":100}}}}}}"#
             )
         };
-        std::fs::write(root.join("s1.jsonl"), format!("{}\n{}\n", line("m1", 5), line("m1", 5))).unwrap();
+        std::fs::write(root.join("s1.jsonl"), format!("{}\n{}\n", line("m1", 1), line("m1", 5))).unwrap();
         std::fs::create_dir_all(root.join("s1/subagents")).unwrap();
         std::fs::write(root.join("s1/subagents/agent-a.jsonl"), line("m2", 7)).unwrap();
         let usage = Claude.usage(&[root.join("s1.jsonl")]);

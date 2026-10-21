@@ -134,7 +134,27 @@ Agentes, etapas, checklists de domínio, tamanhos e modelos: veja [`docs/EXTENDE
 
 O mesmo pedido de tamanho `m` no projeto de exemplo ([`examples/tarefas`](examples/tarefas)), conduzido de ponta a ponta por um agente que só conhecia a skill do Passo. O dev seguiu uma regra fixa: aprovar as recomendadas e aceitar a entrega se as checagens passassem. As entregas foram julgadas por uma suíte de aceite escondida, que nenhum agente viu.
 
-<!--SIMULACAO-->
+| | Haiku 5.5 | Sonnet 5.5 |
+| --- | --- | --- |
+| **Suíte escondida** | **6/6** | **6/6** |
+| Testes do projeto no fim | 10 | 14 |
+| Grau de prova | forte | forte |
+| Perguntas ao dev | 1 (formato da listagem) | 0 (tudo virou suposição explícita) |
+| Vezes do dev | 3 (plano, entrega, entrega depois do ajuste) | 2 (plano, entrega) |
+| Passos | 3, mais 1 de ajuste | 4 |
+| Tentativas que falharam · entregas inválidas | 0 · 0 | 0 · 0 |
+| Tempo total | 4min 46s | 2min 28s |
+| Tokens por etapa (refinar · planejar · construir · verificar · entregar) | 6,1k · 9,5k · 29,7k · 17,1k · 7,7k | 4,8k · 6,4k · 16,8k · 4,6k · 3,1k |
+| Tokens no run · chamadas ao modelo | 70,1k · 31 | 35,7k · 15 |
+
+O que a simulação mostrou:
+
+- **O modelo barato chegou ao mesmo resultado.** O Haiku, fazendo todas as etapas sozinho (inclusive planejar e revisar, que por padrão pedem o nível forte), entregou o pedido inteiro, com os mesmos casos de borda que o Sonnet, e passou na suíte escondida.
+- **O revisor barato achou um problema real.** Um passo do Haiku commitou um `tarefas.json` gerado por teste. O revisor apontou, tentou apagar na Verificação e foi barrado (a etapa é só leitura; quem barrou foi a conferência pelo git, porque subagentes não passam pelos hooks). O dev recusou a entrega com uma frase, e o ajuste virou um passo de correção. Esse caso virou uma melhoria no Passo: um passo que muda arquivos fora do plano agora fica anotado para o revisor e para o dev.
+- **O custo para o dev ficou em 2 a 3 decisões**, uma delas uma pergunta com a resposta recomendada pronta.
+- O Haiku gastou cerca do dobro de tokens do Sonnet neste pedido, numa fração do preço por token.
+
+Tokens são os faturáveis (entrada, saída e escrita de cache) que o Passo leu das transcrições e atribuiu a cada etapa pelo horário; a leitura de cache aparece à parte em `passo stats`. Uma ressalva: as transcrições de subagentes registram poucos tokens de saída para o volume de código escrito, então trate a saída como um piso. Foi uma rodada: é indício, não prova. O protocolo para repetir está em [`examples/simulacao`](examples/simulacao).
 
 ## Do MOHs e do SIMPLE para cá
 
