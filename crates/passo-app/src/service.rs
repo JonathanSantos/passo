@@ -194,8 +194,16 @@ impl App {
         let (mut run, out) = self.engine().start(&id, request, size, now);
         run.workspace = Some(workspace);
         self.store.set_current(Some(&id))?;
+        self.write_map(&run);
         let run = self.persist(run, out, None)?;
         Ok(self.next_text(&run))
+    }
+
+    /// Maps the repository for the run (on start, and again when the dev changes the request).
+    fn write_map(&self, run: &Run) {
+        let git = self.uses_git(run).then(|| self.git());
+        let map = crate::repomap::build(&self.layout.root, git.as_ref(), &self.config, 60);
+        passo_store::layout::write_atomic(&self.layout.map(&run.id), map.as_bytes()).ok();
     }
 
     fn prepare_workspace(&self, id: &str) -> Result<Workspace> {
@@ -246,12 +254,14 @@ impl App {
                 "Se a sua plataforma roda subagentes, use `passo-{agent}` e passe a ele esta saída inteira; senão, faça você mesmo, seguindo o papel abaixo."
             ),
         };
+        let map = std::fs::read_to_string(self.layout.map(&run.id)).ok();
         render::next(&View {
             run,
             config: &self.config,
             catalog: &self.catalog,
             delegation: &delegation,
             bin: &self.bin,
+            map: map.as_deref(),
         })
     }
 
@@ -315,9 +325,13 @@ impl App {
             DevAction::Stop(reason) => Command::Stop(reason),
         };
         let stopping = matches!(command, Command::Stop(_));
+        let changing = matches!(command, Command::Change(_));
         let next = self.transition(&run, command, Some(source))?;
         if stopping {
             self.leave_branch(&next)?;
+        }
+        if changing {
+            self.write_map(&next);
         }
         Ok(next)
     }
@@ -371,6 +385,7 @@ impl App {
             catalog: &self.catalog,
             delegation: &delegation,
             bin: &self.bin,
+            map: None,
         })
     }
 

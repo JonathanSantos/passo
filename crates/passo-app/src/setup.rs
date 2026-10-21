@@ -27,7 +27,7 @@ pub fn detect_preset(root: &Path) -> Option<&'static str> {
     .map(|(_, preset)| preset)
 }
 
-const CONTEXT_TEMPLATE: &str = "# Convenções do projeto\n\n<!--\nTodo agente do Passo lê este arquivo. Escreva aqui o que um dev novo precisaria saber:\n- onde fica o quê (pastas, camadas)\n- como se escrevem os testes\n- bibliotecas que o time usa (e as que evita)\n- idioma de nomes e comentários\nApague este comentário quando preencher.\n-->\n";
+const CONTEXT_TEMPLATE: &str = "# Convenções do projeto\n\n<!--\nTodo agente do Passo lê este arquivo. O Passo já mostra a árvore de pastas e os testes; escreva aqui o que a árvore não diz, o que um dev novo precisaria saber:\n- onde fica o quê (pastas, camadas)\n- como se escrevem os testes\n- bibliotecas que o time usa (e as que evita)\n- idioma de nomes e comentários\nApague este comentário quando preencher.\n-->\n";
 
 pub fn init(root: &Path, platforms: &[String], bin: &str) -> Result<InitReport> {
     for id in platforms {

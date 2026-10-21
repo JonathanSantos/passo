@@ -484,3 +484,19 @@ fn invented_evidence_is_refused_and_real_evidence_passes() {
     let out = p.done(&real);
     assert!(out.contains("Aceitar a entrega"), "{out}");
 }
+
+#[test]
+fn refining_shows_a_map_of_the_repository() {
+    let p = Project::new("map");
+    let out = p.app().start("Algo médio", None).unwrap();
+    assert!(out.contains("Mapa do repositório:"), "{out}");
+    assert!(out.contains("src/ (1)"), "{out}");
+    let map = std::fs::read_to_string(
+        p.root
+            .join(".passo/runs")
+            .join(p.app().active().unwrap().id)
+            .join("map.md"),
+    )
+    .unwrap();
+    assert!(map.lines().count() <= 60);
+}
