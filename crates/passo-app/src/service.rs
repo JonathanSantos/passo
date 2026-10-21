@@ -290,7 +290,33 @@ impl App {
             DevAction::Resize(size) => Command::Resize(size),
             DevAction::Stop(reason) => Command::Stop(reason),
         };
-        self.transition(&run, command, Some(source))
+        let stopping = matches!(command, Command::Stop(_));
+        let next = self.transition(&run, command, Some(source))?;
+        if stopping {
+            self.leave_branch(&next)?;
+        }
+        Ok(next)
+    }
+
+    /// A stopped run keeps its work on its branch, committed, and the dev goes back where they were.
+    fn leave_branch(&self, run: &Run) -> Result<()> {
+        let Some(ws) = run.workspace.as_ref().filter(|_| self.uses_git(run)) else {
+            return Ok(());
+        };
+        let (Some(branch), Some(back)) = (ws.branch.as_ref(), ws.from.as_ref()) else {
+            return Ok(());
+        };
+        let git = self.git();
+        git.stage_all()?;
+        git.commit(&format!("passo({}): trabalho em andamento (run interrompido)", run.id))?;
+        git.switch(back)?;
+        let text = format!("O trabalho ficou em {branch}; de volta em {back}");
+        self.store.log(&run.id).append(
+            &run.id,
+            &[draft(run, "branch.left", Actor::Passo, text)],
+            self.clock.now(),
+        )?;
+        Ok(())
     }
 
     /// One screen for the dev: where the run is and what it waits for.

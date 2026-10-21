@@ -53,11 +53,17 @@ Responder no chat funciona porque o hook de prompt só dispara com o que **você
 
 ## Começar
 
+A partir do código (Rust 1.89 ou mais novo):
+
+```bash
+cargo install --git https://github.com/JonathanSantos/passo passo-cli
+```
+
+Depois da primeira release, também pelo instalador, que baixa o binário para macOS ou Linux e confere o checksum:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JonathanSantos/passo/main/install.sh | sh
 ```
-
-Ou a partir do código: `cargo install --path crates/passo-cli`.
 
 No projeto (um repositório git com pelo menos um commit):
 
@@ -168,6 +174,11 @@ O Passo junta o que mais rendia nos dois harnesses anteriores: o fluxo conduzido
 - **Um binário Rust** em vez de Node, com as plataformas atrás de adapters.
 - Ficaram de fora os testes escondidos do construtor, os vários revisores e o daemon: custam caro e rendem pouco com modelos baratos.
 
+## Estado
+
+- **Testado de ponta a ponta**: o fluxo inteiro, nos quatro tamanhos, com git de verdade (branch, commit por passo, merge, `stop`), a validação das entregas, a auditoria, as métricas, o painel e a simulação com Haiku e Sonnet descrita acima.
+- **Ainda não testado ao vivo**: os hooks numa sessão real do Claude Code (a trava, o Stop e a aprovação pelo chat) e o formato de hooks do Copilot no VS Code. Esses caminhos estão cobertos por testes com payloads sintéticos; a simulação usou subagentes, que não passam pelos hooks. O formato do Copilot é o ponto mais incerto, e por isso fica isolado no adapter.
+
 ## Documentos
 
 - [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md): crates, o fluxo como função pura, auditoria, métricas, padrões e decisões.
@@ -182,7 +193,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-A CI roda em Linux e macOS. Uma tag `v*` publica binários para macOS e Linux (x86_64 e aarch64). Para instalar o Passo num workflow (ou no ambiente do Copilot coding agent), use a action do repositório:
+A CI roda em Linux e macOS. Uma tag `v*` publica binários para macOS e Linux (x86_64 e aarch64). Depois da primeira release, para instalar o Passo num workflow (ou no ambiente do Copilot coding agent), use a action do repositório:
 
 ```yaml
 - uses: JonathanSantos/passo@main

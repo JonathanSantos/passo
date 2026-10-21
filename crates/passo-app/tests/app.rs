@@ -216,6 +216,21 @@ fn stop_hook_blocks_only_on_the_agents_turn_and_gives_up_after_three() {
 }
 
 #[test]
+fn stop_keeps_the_work_on_the_branch_and_goes_back() {
+    let p = Project::new("stop-branch");
+    p.app().start("Trocar o título", Some(passo_core::Size::Pp)).unwrap();
+    p.write("src/lib.txt", "meio feito\n");
+    p.app().decide(DevAction::Stop(String::new()), Source::Cli).unwrap();
+    assert_eq!(p.git(&["rev-parse", "--abbrev-ref", "HEAD"]), "main");
+    assert_eq!(
+        std::fs::read_to_string(p.root.join("src/lib.txt")).unwrap(),
+        "tarefas\n"
+    );
+    let branch = p.git(&["branch", "--list", "passo/*", "--format=%(refname:short)"]);
+    assert!(p.git(&["log", "--oneline", &branch]).contains("run interrompido"));
+}
+
+#[test]
 fn dirty_tree_refuses_to_start() {
     let p = Project::new("dirty");
     p.write("src/wip.txt", "wip\n");

@@ -31,7 +31,12 @@ trap 'rm -rf "$tmp"' EXIT
 echo "passo: baixando $url"
 curl -fsSL "$url" -o "$tmp/$asset"
 curl -fsSL "$url.sha256" -o "$tmp/$asset.sha256"
-(cd "$tmp" && shasum -a 256 -c "$asset.sha256" >/dev/null) || { echo "passo: checksum não confere" >&2; exit 1; }
+if command -v sha256sum >/dev/null 2>&1; then
+  check="sha256sum -c"
+else
+  check="shasum -a 256 -c"
+fi
+(cd "$tmp" && $check "$asset.sha256" >/dev/null) || { echo "passo: checksum não confere" >&2; exit 1; }
 tar -xzf "$tmp/$asset" -C "$tmp"
 mkdir -p "$dir"
 install -m 0755 "$tmp/passo" "$dir/passo"
