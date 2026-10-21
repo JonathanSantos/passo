@@ -46,6 +46,18 @@ Por isso o fluxo é determinístico: a mesma sequência de comandos e fatos dá 
 
 Toda mudança de intenção passa pelo Refinar: recusar o plano e `passo change` mandam o run de volta ao refinamento, e os passos já feitos ficam. Cada resposta, recusa, mudança, dica, troca de tamanho e nova versão do plano vira um `Change` com quem, quando, em que etapa e o antes e depois. Cada versão do plano fica em `plan-v<N>.json`, e a aprovada fica registrada pela impressão digital.
 
+### Critérios amarrados aos passos
+
+Cada passo do plano declara os critérios que atende (`criterios`, guardados em `Step.criteria`). O parser recusa referência a critério que não existe, e `submit_plan` recusa critério sem passo. Num re-plano, os passos já feitos perdem a amarração (`legacy: true`, `criteria` vazio): os critérios foram trocados e renumerados, e `C1` pode ser outra coisa. A correção de um critério reprovado carrega o critério e herda o `rodar` do último passo (não legado) que o atendia. Construir mostra o que o passo atende; Verificar, `C1 ← S1 [commit]`.
+
+### O teste do passo (`rodar`)
+
+Um passo pode trazer o comando que roda só o seu teste. É o primeiro texto escrito pelo agente que o próprio Passo executa, então ele passa por duas barreiras puras em `submit_plan`: é uma chamada simples a um executor de testes (sem `$(`, crase, `;`, `&&`, `||`, `|`, `>`, `<`, quebra de linha ou `\`, e começando por um programa de `tests.runners` ou de alguma checagem configurada, `Config::refuse_test_command`), e a trava é consultada depois, em profundidade. Um plano com `rodar` sempre abre o gate `aprovar`, e aprovar autoriza esses comandos. No `done`, o app roda o `rodar` antes das checagens do passo, e a falha volta como falha de checagem.
+
+### Escalada para o nível forte
+
+Quando um passo falha `escalate_after` vezes (padrão 1; `0` em `pp`), o core marca `Step.tier = "forte"` e emite `step.escalated`, desde que o agente da etapa não seja forte já (`StepFacts.agent_tier`). A tarefa seguinte delega ao gêmeo `passo-<agente>-forte`, que a instalação escreve para cada agente de nível leve. O `ok` num `travado` zera as tentativas e mantém o nível.
+
 ## O mapa do projeto
 
 Opcional. Um agente explorador (`passo map`, só leitura) entrega o mapa do projeto em JSON; o Passo confere a forma (`spec::parse_map`, puro) e o disco (caminhos que casam arquivos rastreados, fontes que existem, nada mudado durante o mapeamento) e grava `.passo/map/` em Markdown, no git. O `App` guarda o resultado da leitura sem nunca falhar: um mapa quebrado vira um aviso e o fluxo segue sem ele, com a trava inteira. A cada etapa, `passo_core::map::select` (puro) escolhe o que entra no contexto pelo alvo da etapa (o pedido em Refinar, os arquivos do pedido refinado em Planejar, os do passo em Construir, os do diff em Verificar) e pelo orçamento de linhas do tamanho (`map_lines`). Com mapa, a árvore de pastas sai de Refinar e Planejar.
@@ -58,7 +70,9 @@ A cadeia sozinha só detecta edição: quem reescreve o arquivo inteiro recomput
 
 ## Métricas
 
-As métricas saem do log, não de contadores paralelos: o tempo de cada etapa vem dos eventos `stage.entered`; as vezes do dev e a espera dele, de `gate.opened` até o próximo evento do dev; as falhas, as negações da trava e as entregas inválidas, dos eventos de mesmo nome. Os tokens vêm das transcrições que os hooks informam, atribuídos a cada etapa pelo horário.
+As métricas saem do log, não de contadores paralelos: o tempo de cada etapa vem dos eventos `stage.entered`; as vezes do dev e a espera dele, de `gate.opened` até o próximo evento do dev; as falhas, as negações da trava, as entregas inválidas e as escaladas (`step.escalated`), dos eventos de mesmo nome; as ações por passo, dos eventos `tool`, que guardam o passo. Os tokens vêm das transcrições que os hooks informam, atribuídos a cada etapa pelo horário.
+
+O orçamento de ações (`max_tool_calls` por tamanho) também lê o hook: `PreToolUse` conta só as chamadas que a trava deixou passar, por passo e tentativa (por etapa fora de Construir), em `budget.json`. Passou do limite, o hook não nega: responde `additionalContext` pedindo para entregar ou perguntar, na primeira vez e a cada 20 ações, e a primeira deixa `step.budget` no log.
 
 ## A trava
 

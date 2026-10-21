@@ -93,7 +93,7 @@ passo ui
 - **Tudo vira evento** num log com cadeia de SHA-256: cada ação do agente, cada negação da trava, cada decisão sua (e por onde ela veio: chat, terminal ou painel). `passo log --verify` acusa qualquer linha alterada ou apagada.
 - **O log fica ancorado no git.** Cada commit do Passo leva o hash do último evento (`Passo-Audit:`), e na entrega (ou no `stop`) o log vai commitado em `.passo/audit/<run>/`, junto com o código. Um log reescrito ou encurtado até o último commit não bate com o histórico, e o `verify` diz.
 - **Mudanças no pedido** ficam registradas com quem, quando e o antes e depois: respostas, recusas, `passo change`, trocas de tamanho e cada versão do plano (`plan-v1.json`, `plan-v2.json`…).
-- **`passo stats`** mostra o que custou: tempo por etapa, **quantas vezes o dev foi chamado e quanto tempo o run esperou por ele**, tokens por etapa e por modelo, tentativas falhas, entregas inválidas e negações da trava.
+- **`passo stats`** mostra o que custou: tempo por etapa, **quantas vezes o dev foi chamado e quanto tempo o run esperou por ele**, tokens por etapa e por modelo, tentativas falhas, entregas inválidas, negações da trava, ações por passo (média e máximo) e escaladas para o nível forte.
 
 ## Comandos
 
