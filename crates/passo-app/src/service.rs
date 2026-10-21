@@ -836,9 +836,10 @@ impl App {
     /// Every criterion the review calls met must cite something Passo can find: a file that exists (and the line,
     /// when one is cited), or a test name in a test file or in a file the run touched. Cheap models invent evidence.
     fn check_evidence(&self, run: &Run, review: &spec::Review) -> std::result::Result<(), Invalid> {
-        let root = &self.layout.root;
+        let root = std::fs::canonicalize(&self.layout.root).unwrap_or(self.layout.root.clone());
         let mut errors = vec![];
-        let mut searchable: Option<Vec<PathBuf>> = None;
+        // Each searchable file is read once per hand-in, whatever the number of criteria.
+        let mut searchable: Option<Vec<String>> = None;
         for (i, item) in review.criteria.iter().enumerate().filter(|(_, item)| item.ok) {
             let field = format!("`criterios[{i}].evidencia`");
             let refs = spec::evidence_refs(&item.evidence);
@@ -849,36 +850,40 @@ impl App {
                 continue;
             }
             let mut confirmed = false;
-            let mut wrong_line = None;
+            // A wrong reference next to a right one still refuses: cited evidence has to be exact.
+            let mut problems = vec![];
             for r in &refs {
                 if let Some(path) = &r.path {
-                    let file = root.join(path);
-                    if file.is_dir() && r.line.is_none() {
-                        confirmed = true;
-                    } else if file.is_file() {
-                        let lines = std::fs::read_to_string(&file).map(|t| t.lines().count()).unwrap_or(0);
-                        match r.line {
-                            Some(n) if n == 0 || n as usize > lines => {
-                                wrong_line.get_or_insert(format!(
-                                    "{field} cita {path}:{n}, mas o arquivo tem {lines} linha(s)"
-                                ));
+                    match project_file(&root, path) {
+                        Located::Outside => problems.push(format!("{field} cita {path}, que está fora do projeto")),
+                        Located::Folder => {
+                            problems.push(format!("{field} cita {path}, que é uma pasta: aponte o arquivo"))
+                        }
+                        Located::Missing => {}
+                        Located::File(file) => {
+                            let lines = std::fs::read_to_string(&file).map(|t| t.lines().count()).unwrap_or(0);
+                            match r.line {
+                                Some(n) if n == 0 || n as usize > lines => {
+                                    problems.push(format!("{field} cita {path}:{n}, mas o arquivo tem {lines} linhas"))
+                                }
+                                _ => confirmed = true,
                             }
-                            _ => confirmed = true,
                         }
                     }
                 } else if let Some(symbol) = &r.symbol {
-                    let files = searchable.get_or_insert_with(|| self.searchable_files(run));
-                    if files
-                        .iter()
-                        .any(|f| std::fs::read_to_string(f).is_ok_and(|t| t.contains(symbol.as_str())))
-                    {
+                    let texts = searchable.get_or_insert_with(|| {
+                        self.searchable_files(run)
+                            .iter()
+                            .filter_map(|f| std::fs::read_to_string(f).ok())
+                            .collect()
+                    });
+                    if texts.iter().any(|t| t.contains(symbol.as_str())) {
                         confirmed = true;
                     }
                 }
             }
-            // A cited line that does not exist is invented, even next to a real file.
-            if let Some(wrong) = wrong_line {
-                errors.push(wrong);
+            if !problems.is_empty() {
+                errors.extend(problems);
             } else if !confirmed {
                 let cited: Vec<String> = refs
                     .iter()
@@ -902,7 +907,8 @@ impl App {
         }
     }
 
-    /// Where a cited test name may live: test files, and the files this run changed.
+    /// Where a cited test name may live: test files, the files the plan's steps name, and (with git) the files
+    /// this run changed. The same folders are left out as anywhere else in the project.
     fn searchable_files(&self, run: &Run) -> Vec<PathBuf> {
         let root = &self.layout.root;
         let git = self.uses_git(run).then(|| self.git());
@@ -911,9 +917,11 @@ impl App {
             .into_iter()
             .filter(|f| tests.as_ref().is_some_and(|t| t.is_match(f)))
             .collect();
+        files.extend(run.steps.iter().flat_map(|s| s.files.iter().cloned()));
         if let (Some(git), Some(base)) = (&git, run.workspace.as_ref().and_then(|w| w.base.as_deref())) {
             files.extend(git.numstat(base).unwrap_or_default().into_iter().map(|(path, _)| path));
         }
+        files.retain(|f| !crate::infra::ignored_path(f));
         files.sort();
         files.dedup();
         files.into_iter().map(|f| root.join(f)).collect()
@@ -1112,6 +1120,41 @@ pub(crate) fn globs(patterns: &[String]) -> Result<GlobSet> {
         builder.add(Glob::new(pattern).with_context(|| format!("padrão inválido: {pattern}"))?);
     }
     Ok(builder.build()?)
+}
+
+/// Where an evidence path points, as far as the project is concerned.
+enum Located {
+    File(PathBuf),
+    Folder,
+    /// Absolute, climbing out with `..`, escaping by a symlink, or inside a folder the project never counts
+    /// (`.git`, `.passo`, `target`…).
+    Outside,
+    /// Not on disk: maybe not a path at all.
+    Missing,
+}
+
+fn project_file(root: &Path, path: &str) -> Located {
+    let relative = Path::new(path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        || crate::infra::ignored_path(path)
+    {
+        return Located::Outside;
+    }
+    let joined = root.join(relative);
+    let Ok(real) = std::fs::canonicalize(&joined) else {
+        return Located::Missing;
+    };
+    if !real.starts_with(root) {
+        return Located::Outside;
+    }
+    if real.is_dir() {
+        Located::Folder
+    } else {
+        Located::File(real)
+    }
 }
 
 /// A file path, `-` for stdin, or the content itself.

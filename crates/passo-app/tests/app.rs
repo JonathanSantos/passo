@@ -458,7 +458,7 @@ fn invented_evidence_is_refused_and_real_evidence_passes() {
         .unwrap_err()
         .to_string();
     assert!(
-        err.contains("`criterios[0].evidencia` cita src/lib.txt:420, mas o arquivo tem 1 linha(s)"),
+        err.contains("`criterios[0].evidencia` cita src/lib.txt:420, mas o arquivo tem 1 linhas"),
         "{err}"
     );
     let vague = p.draft(
@@ -946,4 +946,60 @@ fn an_attached_project_without_a_map_is_a_warning() {
     let out = p.app().start("Algo", None).unwrap();
     assert!(out.contains("projeto anexado api sem mapa"), "{out}");
     std::fs::remove_dir_all(attached).ok();
+}
+
+/// A p run with one step that wrote tests/a_test.txt (with `prova_tal` in it), stopped at the review.
+fn to_review(p: &Project) {
+    p.app().start("Algo pequeno", Some(passo_core::Size::P)).unwrap();
+    let brief = p.draft("brief-ev2", r#"{"entendimento":"x","escopo":["a"]}"#);
+    p.done(&brief);
+    let plan = p.draft(
+        "plan-ev2",
+        r#"{"titulo":"T","criterios":["tem prova"],"passos":[{"titulo":"S","teste":"prova","criterios":["C1"]}]}"#,
+    );
+    p.done(&plan);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    p.write("tests/a_test.txt", "teste prova_tal\n");
+    assert!(p.done("com teste").contains("# Agente: revisor"));
+}
+
+fn review_error(p: &Project, name: &str, evidence: &str) -> String {
+    let json = format!(r#"{{"criterios":[{{"id":"C1","ok":true,"evidencia":"{evidence}"}}]}}"#);
+    let file = p.draft(name, &json);
+    match p.app().done(DoneInput {
+        text: file,
+        ..Default::default()
+    }) {
+        Ok(out) => format!("ACEITA: {out}"),
+        Err(e) => e.to_string(),
+    }
+}
+
+#[test]
+fn evidence_must_be_a_file_inside_the_project() {
+    let p = Project::new("evidence-inside");
+    to_review(&p);
+    let id = p.app().active().unwrap().id;
+    let cases = [
+        ("/etc/hosts:1", "cita /etc/hosts, que está fora do projeto"),
+        ("../../x.rs:1", "cita ../../x.rs, que está fora do projeto"),
+        ("src/", "cita src/, que é uma pasta: aponte o arquivo"),
+        ("target/debug/x.rs", "cita target/debug/x.rs, que está fora do projeto"),
+    ];
+    for (i, (evidence, message)) in cases.iter().enumerate() {
+        let err = review_error(&p, &format!("rev-in-{i}"), evidence);
+        assert!(
+            err.contains(&format!("`criterios[0].evidencia` {message}")),
+            "{evidence}: {err}"
+        );
+    }
+    let passo = format!(".passo/runs/{id}/run.json");
+    assert!(review_error(&p, "rev-in-passo", &passo).contains("que está fora do projeto"));
+    let invented = review_error(&p, "rev-in-sym-bad", "`teste_que_ninguem_escreveu`");
+    assert!(invented.contains("nada disso existe no projeto"), "{invented}");
+    let symbol = review_error(&p, "rev-in-sym", "`prova_tal`");
+    assert!(
+        symbol.starts_with("ACEITA") && symbol.contains("Aceitar a entrega"),
+        "{symbol}"
+    );
 }

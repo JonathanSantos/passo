@@ -273,8 +273,15 @@ impl Git {
 pub const IGNORED_DIRS: [&str; 6] = [".git", ".passo", "target", "node_modules", "dist", "build"];
 
 /// The project's files, relative to `root`: what git tracks, or a walk of the folders when there is no git.
+/// Whether a project-relative path sits in a folder the project never counts.
+pub fn ignored_path(path: &str) -> bool {
+    path.trim_start_matches("./")
+        .split('/')
+        .any(|part| IGNORED_DIRS.contains(&part))
+}
+
 pub fn project_files(root: &Path, git: Option<&Git>) -> Vec<String> {
-    let ignored = |path: &str| path.split('/').any(|part| IGNORED_DIRS.contains(&part));
+    let ignored = ignored_path;
     if let Some(files) = git.and_then(|g| g.tracked_files().ok()) {
         return files.into_iter().filter(|f| !ignored(f)).collect();
     }
