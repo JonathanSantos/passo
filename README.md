@@ -165,7 +165,7 @@ O que a simulação mostrou:
 - **O custo para o dev ficou em 2 a 3 decisões**, uma delas uma pergunta com a resposta recomendada pronta.
 - O Haiku gastou cerca do dobro de tokens do Sonnet neste pedido, numa fração do preço por token.
 
-Tokens são os faturáveis (entrada, saída e escrita de cache) que o Passo leu das transcrições e atribuiu a cada etapa pelo horário; a leitura de cache aparece à parte em `passo stats`. Uma ressalva: as transcrições de subagentes registram poucos tokens de saída para o volume de código escrito, então trate a saída como um piso. Foi uma rodada: é indício, não prova. O protocolo para repetir está em [`examples/simulacao`](examples/simulacao).
+Tokens são os faturáveis (entrada, saída e escrita de cache) que o Passo leu das transcrições e atribuiu a cada etapa pelo horário; a leitura de cache aparece à parte em `passo stats`. Uma ressalva: as transcrições de subagentes registram poucos tokens de saída para o volume de código escrito, então trate a saída como um piso. Foi uma rodada: é indício, não prova. Para repetir com N rodadas por modelo, use `examples/simulacao/rodar.sh` e gere esta tabela de novo com `examples/simulacao/tabela.js` (veja [`examples/simulacao`](examples/simulacao)); a tabela deve sair dos scripts, não ser escrita à mão.
 
 ## Do MOHs e do SIMPLE para cá
 

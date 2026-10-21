@@ -2,6 +2,30 @@
 
 Como medir o Passo com modelos baratos: o mesmo pedido, um agente por braço, uma suíte de aceite que nenhum agente vê.
 
+## Rodar
+
+```bash
+sh examples/simulacao/rodar.sh haiku 3
+sh examples/simulacao/rodar.sh sonnet 3
+node examples/simulacao/tabela.js
+```
+
+`rodar.sh <modelo> <rodadas>` faz o protocolo abaixo sozinho, uma rodada por vez: copia o projeto de exemplo para uma pasta temporária, faz `git init`, `passo init --agent claude`, escreve o `passo.yaml` e o `context.md`, e roda o agente sem interação (`claude -p`). O `claude -p` termina quando o agente para na vez do dev; então o script aplica a regra do dev e retoma a mesma sessão (`claude -p --continue`), até o run terminar. No fim, roda a suíte escondida e guarda o resultado e o `passo stats --json` em `resultados/<modelo>/<rodada>.json`.
+
+A regra do dev, fixa:
+
+| Gate                          | O dev responde                                                       |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `aprovar`, `pergunta`, `limite` | `passo ok`                                                         |
+| `aceitar`                     | `passo ok` se as checagens passaram e nenhum critério foi reprovado; senão `passo no "<primeiro critério reprovado>"` |
+| `travado`                     | `passo ok` na primeira vez; `passo stop` na segunda                  |
+
+Os comandos do dev saem com `PASSO_DEV=1`, porque o script pode rodar dentro do terminal de um agente. Com os hooks ativos (`--setting-sources project`), os tokens entram em `passo stats` sem nada à mão.
+
+`tabela.js` lê `resultados/` e imprime a tabela em Markdown: a mediana de cada linha, com o intervalo entre parênteses. **A tabela da simulação no README principal sai daqui, nunca escrita à mão.**
+
+O script é melhor esforço: gasta tokens da sua conta (`BUDGET_USD`, padrão 3 por chamada) e é o único lugar a ajustar quando a CLI do agente mudar (os flags ficam numa variável no topo). Variáveis: `CLAUDE`, `PASSO`, `BUDGET_USD`, `MAX_TURNS`.
+
 ## Protocolo
 
 1. Copie [`examples/tarefas`](../tarefas) para uma pasta fora deste repositório, uma por braço, e faça `git init` e o primeiro commit em cada uma.
