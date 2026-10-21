@@ -8,7 +8,7 @@
 //!   stages/<etapa>.md   how a stage is done in this project
 //!   checklists/*.md     domain checklists for planning and review
 //!   current             id of the active run
-//!   runs/<id>/          run.json, events.jsonl, plan-v<N>.json, map.md, sessions.json, report.html (not in git)
+//!   runs/<id>/          run.json, events.jsonl, plan-v<N>.json, tree.md, sessions.json, report.html (not in git)
 //!   audit/<id>/         the log and the plans as they were when the run ended, committed on the run's branch
 //! ```
 
@@ -82,9 +82,9 @@ impl Layout {
     pub fn budget(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("budget.json")
     }
-    /// The repository map shown while refining and planning (a fact of the world, regenerated on a change).
-    pub fn map(&self, id: &str) -> PathBuf {
-        self.run_dir(id).join("map.md")
+    /// The repository tree shown while refining and planning (a fact of the world, regenerated on a change).
+    pub fn tree(&self, id: &str) -> PathBuf {
+        self.run_dir(id).join("tree.md")
     }
     pub fn report(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("report.html")

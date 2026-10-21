@@ -1,5 +1,5 @@
-//! A short map of the repository for the agents that refine and plan: where things are, without file contents.
-//! Cheap models spend most of their tokens finding their way around; the map spends a few dozen lines instead.
+//! A short tree of the repository for the agents that refine and plan: where things are, without file contents.
+//! Cheap models spend most of their tokens finding their way around; the tree spends a few dozen lines instead.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,7 +14,7 @@ const CODE: [&str; 24] = [
     "swift", "scala", "ex", "exs", "vue", "svelte",
 ];
 
-/// Builds the map, at most `limit` lines: folders two levels deep with their file counts, the largest code
+/// Builds the tree, at most `limit` lines: folders two levels deep with their file counts, the largest code
 /// files, where the tests live, and the configured checks.
 pub fn build(root: &Path, git: Option<&Git>, config: &Config, limit: usize) -> String {
     let files = project_files(root, git);
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn a_big_tree_fits_the_limit() {
-        let root = std::env::temp_dir().join(format!("passo-map-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("passo-tree-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
         for i in 0..200 {
             let dir = root.join(format!("pkg{}/mod{}", i % 40, i % 7));
@@ -127,10 +127,10 @@ mod tests {
         }
         std::fs::create_dir_all(root.join("node_modules/dep")).unwrap();
         std::fs::write(root.join("node_modules/dep/index.js"), "x").unwrap();
-        let map = build(&root, None, &Config::default(), 60);
-        assert!(map.lines().count() <= 60, "{map}");
-        assert!(map.contains("pkg0/") && map.contains("Maiores arquivos de código"));
-        assert!(!map.contains("node_modules"));
+        let tree = build(&root, None, &Config::default(), 60);
+        assert!(tree.lines().count() <= 60, "{tree}");
+        assert!(tree.contains("pkg0/") && tree.contains("Maiores arquivos de código"));
+        assert!(!tree.contains("node_modules"));
         std::fs::remove_dir_all(root).ok();
     }
 }

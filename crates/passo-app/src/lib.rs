@@ -5,17 +5,17 @@
 //! - [`hooks`]: the lock and chat approvals, for any platform.
 //! - [`metrics`]: time, dev turns, tokens per stage and model.
 //! - [`setup`]: `passo init` and `passo sync`.
-//! - [`repomap`]: the repository map refining and planning read.
+//! - [`tree`]: the repository tree refining and planning read.
 //! - [`infra`]: clock, shell checks and git, behind traits.
 
 pub mod hooks;
 pub mod infra;
 pub mod metrics;
 pub mod render;
-pub mod repomap;
 pub mod service;
 pub mod setup;
 pub mod snapshot;
+pub mod tree;
 
 pub use service::{App, DevAction, DoneInput, Rejected, Reporter, Source};
 pub use snapshot::Snapshot;

@@ -13,7 +13,7 @@ passo-cli ──► passo-web ──► passo-app ──► passo-store ──�
 | `passo-core`     | vocabulário, máquina de estados, perfis de tamanho, validação, trava    | não |
 | `passo-store`    | `.passo/`, log de auditoria, `extends`, catálogo de agentes e etapas     | disco |
 | `passo-adapters` | Claude Code e Copilot: instalação, payloads de hook, dialetos, tokens    | disco |
-| `passo-app`      | casos de uso, efeitos (checagens, git), texto da tarefa, mapa do repositório, métricas, hooks | tudo |
+| `passo-app`      | casos de uso, efeitos (checagens, git), texto da tarefa, árvore do repositório, métricas, hooks | tudo |
 | `passo-web`      | painel ao vivo e relatório HTML                                          | rede local |
 | `passo-cli`      | argumentos e saída                                                       | terminal |
 

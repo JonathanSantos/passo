@@ -194,16 +194,16 @@ impl App {
         let (mut run, out) = self.engine().start(&id, request, size, now);
         run.workspace = Some(workspace);
         self.store.set_current(Some(&id))?;
-        self.write_map(&run);
+        self.write_tree(&run);
         let run = self.persist(run, out, None)?;
         Ok(self.next_text(&run))
     }
 
-    /// Maps the repository for the run (on start, and again when the dev changes the request).
-    fn write_map(&self, run: &Run) {
+    /// Lists the repository tree for the run (on start, and again when the dev changes the request).
+    fn write_tree(&self, run: &Run) {
         let git = self.uses_git(run).then(|| self.git());
-        let map = crate::repomap::build(&self.layout.root, git.as_ref(), &self.config, 60);
-        passo_store::layout::write_atomic(&self.layout.map(&run.id), map.as_bytes()).ok();
+        let tree = crate::tree::build(&self.layout.root, git.as_ref(), &self.config, 60);
+        passo_store::layout::write_atomic(&self.layout.tree(&run.id), tree.as_bytes()).ok();
     }
 
     fn prepare_workspace(&self, id: &str) -> Result<Workspace> {
@@ -254,14 +254,14 @@ impl App {
                 "Se a sua plataforma roda subagentes, use `passo-{agent}` e passe a ele esta saída inteira; senão, faça você mesmo, seguindo o papel abaixo."
             ),
         };
-        let map = std::fs::read_to_string(self.layout.map(&run.id)).ok();
+        let tree = std::fs::read_to_string(self.layout.tree(&run.id)).ok();
         render::next(&View {
             run,
             config: &self.config,
             catalog: &self.catalog,
             delegation: &delegation,
             bin: &self.bin,
-            map: map.as_deref(),
+            tree: tree.as_deref(),
         })
     }
 
@@ -331,7 +331,7 @@ impl App {
             self.leave_branch(&next)?;
         }
         if changing {
-            self.write_map(&next);
+            self.write_tree(&next);
         }
         Ok(next)
     }
@@ -399,7 +399,7 @@ impl App {
             catalog: &self.catalog,
             delegation: &delegation,
             bin: &self.bin,
-            map: None,
+            tree: None,
         })
     }
 

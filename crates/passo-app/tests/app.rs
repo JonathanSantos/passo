@@ -486,19 +486,19 @@ fn invented_evidence_is_refused_and_real_evidence_passes() {
 }
 
 #[test]
-fn refining_shows_a_map_of_the_repository() {
+fn refining_shows_the_repository_tree() {
     let p = Project::new("map");
     let out = p.app().start("Algo médio", None).unwrap();
-    assert!(out.contains("Mapa do repositório:"), "{out}");
+    assert!(out.contains("Árvore do repositório:"), "{out}");
     assert!(out.contains("src/ (1)"), "{out}");
-    let map = std::fs::read_to_string(
+    let tree = std::fs::read_to_string(
         p.root
             .join(".passo/runs")
             .join(p.app().active().unwrap().id)
-            .join("map.md"),
+            .join("tree.md"),
     )
     .unwrap();
-    assert!(map.lines().count() <= 60);
+    assert!(tree.lines().count() <= 60);
 }
 
 #[test]

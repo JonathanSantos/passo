@@ -14,8 +14,8 @@ pub struct View<'a> {
     /// How to hand a stage to a subagent on the installed platform(s).
     pub delegation: &'a dyn Fn(&str) -> String,
     pub bin: &'a str,
-    /// The repository map, shown while refining and planning.
-    pub map: Option<&'a str>,
+    /// The repository tree, shown while refining and planning.
+    pub tree: Option<&'a str>,
 }
 
 /// `Refinar ✓ · Planejar ✓ · Construir ▸ · Verificar · Entregar`, with `(auto)` where the size skips the agent.
@@ -131,9 +131,9 @@ fn context(view: &View) -> String {
     }
 
     match run.stage {
-        Stage::Refinar => repo_map(view, &mut out),
+        Stage::Refinar => repo_tree(view, &mut out),
         Stage::Planejar => {
-            repo_map(view, &mut out);
+            repo_tree(view, &mut out);
             if let Some(brief) = &run.brief {
                 let _ = writeln!(out, "\nPedido refinado: {}", brief.understanding);
                 list(&mut out, "Escopo", &brief.scope);
@@ -537,9 +537,9 @@ fn builder_notes(run: &Run) -> Vec<String> {
     picked
 }
 
-fn repo_map(view: &View, out: &mut String) {
-    if let Some(map) = view.map.filter(|m| !m.trim().is_empty()) {
-        let _ = writeln!(out, "\nMapa do repositório:\n{}", map.trim_end());
+fn repo_tree(view: &View, out: &mut String) {
+    if let Some(tree) = view.tree.filter(|t| !t.trim().is_empty()) {
+        let _ = writeln!(out, "\nÁrvore do repositório:\n{}", tree.trim_end());
     }
 }
 
