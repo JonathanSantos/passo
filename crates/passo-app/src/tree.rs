@@ -103,9 +103,11 @@ pub fn build(root: &Path, git: Option<&Git>, config: &Config, limit: usize) -> S
     let fixed: usize = sections[1..].iter().map(Vec::len).sum();
     let room = limit.saturating_sub(fixed).max(2);
     if sections[0].len() > room {
-        let hidden = sections[0].len() - (room - 1);
-        sections[0].truncate(room - 1);
-        sections[0].push(format!("  … e mais {hidden} pasta(s)"));
+        // The heading, the folders that fit, and one line saying how many folders were left out.
+        let shown = room - 2;
+        let folders = sections[0].len() - 1;
+        sections[0].truncate(1 + shown);
+        sections[0].push(format!("  … e mais {} pasta(s)", folders - shown));
     }
     let mut lines: Vec<String> = sections.into_iter().flatten().collect();
     lines.truncate(limit);
@@ -131,6 +133,40 @@ mod tests {
         assert!(tree.lines().count() <= 60, "{tree}");
         assert!(tree.contains("pkg0/") && tree.contains("Maiores arquivos de código"));
         assert!(!tree.contains("node_modules"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tooling_folders_never_show_and_the_count_is_of_folders() {
+        let root = std::env::temp_dir().join(format!("passo-tree-hidden-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        for dir in [".git/objects", ".passo/audit/r1", "target/debug", "src"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+            std::fs::write(root.join(dir).join("f.txt"), "x").unwrap();
+        }
+        let tree = build(&root, None, &Config::default(), 60);
+        assert!(tree.contains("src/"), "{tree}");
+        for hidden in [".git", ".passo", "audit", "target"] {
+            assert!(!tree.contains(hidden), "{hidden}: {tree}");
+        }
+        for i in 0..30 {
+            std::fs::create_dir_all(root.join(format!("pkg{i:02}"))).unwrap();
+            std::fs::write(root.join(format!("pkg{i:02}/f.txt")), "x").unwrap();
+        }
+        let short = build(&root, None, &Config::default(), 10);
+        let shown = short
+            .lines()
+            .filter(|l| l.starts_with("  ") && l.trim_end().ends_with(')') && l.contains("/ ("))
+            .count();
+        let hidden: usize = short
+            .lines()
+            .find_map(|l| {
+                l.trim()
+                    .strip_prefix("… e mais ")
+                    .and_then(|r| r.split(' ').next()?.parse().ok())
+            })
+            .unwrap();
+        assert_eq!(shown + hidden, 31, "every folder is either shown or counted: {short}");
         std::fs::remove_dir_all(root).ok();
     }
 }

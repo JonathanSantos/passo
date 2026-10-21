@@ -1070,3 +1070,23 @@ fn copilot_gets_the_strong_twin_too() {
     assert!(cheap.contains("model: \"Claude Haiku 5.5\""), "{cheap}");
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn the_tree_leaves_tooling_out_and_a_change_redraws_it() {
+    let p = Project::new("tree-redraw");
+    p.write(".passo/audit/antigo/events.jsonl", "{}\n");
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-qm", "auditoria rastreada"]);
+    p.app().start("Algo médio", None).unwrap();
+    let id = p.app().active().unwrap().id;
+    let tree = || std::fs::read_to_string(p.root.join(".passo/runs").join(&id).join("tree.md")).unwrap();
+    assert!(!tree().contains(".passo") && !tree().contains(".git"), "{}", tree());
+    p.write("docs/guia.md", "guia\n");
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-qm", "docs"]);
+    assert!(!tree().contains("docs/"));
+    p.app()
+        .decide(DevAction::Change("também um guia".into()), Source::Cli)
+        .unwrap();
+    assert!(tree().contains("docs/ (1)"), "{}", tree());
+}

@@ -155,6 +155,8 @@ models:
 
 ## 06 · Mapa do repositório no contexto
 
+> Renomeado para árvore pela `docs/SPEC-MAPA.md`, item 00: "mapa" ficou para o que o agente explorador entrega.
+
 **Por quê.** `context.md` é manual e fica vazio. Modelo barato gasta a maior parte dos tokens descobrindo onde as coisas estão.
 
 **Desenho.**

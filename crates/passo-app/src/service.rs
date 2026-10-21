@@ -223,7 +223,15 @@ impl App {
     fn write_tree(&self, run: &Run) {
         let git = self.uses_git(run).then(|| self.git());
         let tree = crate::tree::build(&self.layout.root, git.as_ref(), &self.config, 60);
-        passo_store::layout::write_atomic(&self.layout.tree(&run.id), tree.as_bytes()).ok();
+        if let Err(e) = passo_store::layout::write_atomic(&self.layout.tree(&run.id), tree.as_bytes()) {
+            let event = draft(
+                run,
+                "tree.failed",
+                Actor::Passo,
+                format!("A árvore do repositório não foi gravada: {e}"),
+            );
+            self.store.log(&run.id).append(&run.id, &[event], self.clock.now()).ok();
+        }
     }
 
     fn prepare_workspace(&self, id: &str) -> Result<Workspace> {
