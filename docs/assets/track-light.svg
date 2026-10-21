@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 320" font-family="-apple-system, BlinkMacSystemFont, Inter, Segoe UI, sans-serif">
+<rect width="760" height="320" rx="12" fill="#F7F6F2"/>
+<text x="192.0" y="40" text-anchor="middle" font-size="13" font-weight="600" fill="#1A1A1A">Refinar</text>
+<text x="192.0" y="56" text-anchor="middle" font-size="10" fill="#8A8A90">01</text>
+<text x="316.0" y="40" text-anchor="middle" font-size="13" font-weight="600" fill="#1A1A1A">Planejar</text>
+<text x="316.0" y="56" text-anchor="middle" font-size="10" fill="#8A8A90">02</text>
+<text x="440.0" y="40" text-anchor="middle" font-size="13" font-weight="600" fill="#1A1A1A">Construir</text>
+<text x="440.0" y="56" text-anchor="middle" font-size="10" fill="#8A8A90">03</text>
+<text x="564.0" y="40" text-anchor="middle" font-size="13" font-weight="600" fill="#1A1A1A">Verificar</text>
+<text x="564.0" y="56" text-anchor="middle" font-size="10" fill="#8A8A90">04</text>
+<text x="688.0" y="40" text-anchor="middle" font-size="13" font-weight="600" fill="#1A1A1A">Entregar</text>
+<text x="688.0" y="56" text-anchor="middle" font-size="10" fill="#8A8A90">05</text>
+<text x="24" y="97.0" font-size="15" font-weight="600" fill="#1A1A1A">pp</text>
+<text x="56" y="97.0" font-size="11" fill="#55555C">ajuste</text>
+<line x1="192.0" y1="92.0" x2="688.0" y2="92.0" stroke="#E4E2DC" stroke-width="2"/>
+<circle cx="192.0" cy="92.0" r="7" fill="#F7F6F2" stroke="#8A8A90" stroke-width="1.5"/>
+<text x="192.0" y="114.0" text-anchor="middle" font-size="10" fill="#8A8A90">auto</text>
+<circle cx="316.0" cy="92.0" r="7" fill="#F7F6F2" stroke="#8A8A90" stroke-width="1.5"/>
+<text x="316.0" y="114.0" text-anchor="middle" font-size="10" fill="#8A8A90">auto</text>
+<circle cx="440.0" cy="92.0" r="7" fill="#1A1A1A"/>
+<text x="440.0" y="114.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="564.0" cy="92.0" r="7" fill="#F7F6F2" stroke="#8A8A90" stroke-width="1.5"/>
+<text x="564.0" y="114.0" text-anchor="middle" font-size="10" fill="#8A8A90">auto</text>
+<circle cx="688.0" cy="92.0" r="7" fill="#2F6B55"/>
+<text x="688.0" y="114.0" text-anchor="middle" font-size="10" fill="#2F6B55">você aceita</text>
+<text x="24" y="149.0" font-size="15" font-weight="600" fill="#1A1A1A">p</text>
+<text x="56" y="149.0" font-size="11" fill="#55555C">pequeno</text>
+<line x1="192.0" y1="144.0" x2="688.0" y2="144.0" stroke="#E4E2DC" stroke-width="2"/>
+<circle cx="192.0" cy="144.0" r="7" fill="#1A1A1A"/>
+<text x="192.0" y="166.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="316.0" cy="144.0" r="7" fill="#1A1A1A"/><circle cx="316.0" cy="144.0" r="11" fill="none" stroke="#2F6B55" stroke-width="2"/>
+<text x="316.0" y="166.0" text-anchor="middle" font-size="10" fill="#2F6B55">você aprova</text>
+<circle cx="440.0" cy="144.0" r="7" fill="#1A1A1A"/>
+<text x="440.0" y="166.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="564.0" cy="144.0" r="7" fill="#1A1A1A"/>
+<text x="564.0" y="166.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="688.0" cy="144.0" r="7" fill="#2F6B55"/>
+<text x="688.0" y="166.0" text-anchor="middle" font-size="10" fill="#2F6B55">você aceita</text>
+<text x="24" y="201.0" font-size="15" font-weight="600" fill="#1A1A1A">m</text>
+<text x="56" y="201.0" font-size="11" fill="#55555C">feature</text>
+<line x1="192.0" y1="196.0" x2="688.0" y2="196.0" stroke="#E4E2DC" stroke-width="2"/>
+<circle cx="192.0" cy="196.0" r="7" fill="#1A1A1A"/>
+<text x="192.0" y="218.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="316.0" cy="196.0" r="7" fill="#1A1A1A"/><circle cx="316.0" cy="196.0" r="11" fill="none" stroke="#2F6B55" stroke-width="2"/>
+<text x="316.0" y="218.0" text-anchor="middle" font-size="10" fill="#2F6B55">você aprova</text>
+<circle cx="440.0" cy="196.0" r="7" fill="#1A1A1A"/>
+<text x="440.0" y="218.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="564.0" cy="196.0" r="7" fill="#1A1A1A"/>
+<text x="564.0" y="218.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="688.0" cy="196.0" r="7" fill="#2F6B55"/>
+<text x="688.0" y="218.0" text-anchor="middle" font-size="10" fill="#2F6B55">você aceita</text>
+<text x="24" y="253.0" font-size="15" font-weight="600" fill="#1A1A1A">g</text>
+<text x="56" y="253.0" font-size="11" fill="#55555C">grande</text>
+<line x1="192.0" y1="248.0" x2="688.0" y2="248.0" stroke="#E4E2DC" stroke-width="2"/>
+<circle cx="192.0" cy="248.0" r="7" fill="#1A1A1A"/>
+<text x="192.0" y="270.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="316.0" cy="248.0" r="7" fill="#1A1A1A"/><circle cx="316.0" cy="248.0" r="11" fill="none" stroke="#2F6B55" stroke-width="2"/>
+<text x="316.0" y="270.0" text-anchor="middle" font-size="10" fill="#2F6B55">você aprova</text>
+<circle cx="440.0" cy="248.0" r="7" fill="#1A1A1A"/>
+<text x="440.0" y="270.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="564.0" cy="248.0" r="7" fill="#1A1A1A"/>
+<text x="564.0" y="270.0" text-anchor="middle" font-size="10" fill="#55555C">agente</text>
+<circle cx="688.0" cy="248.0" r="7" fill="#2F6B55"/>
+<text x="688.0" y="270.0" text-anchor="middle" font-size="10" fill="#2F6B55">você aceita</text>
+<text x="24" y="302" font-size="11" fill="#8A8A90">A ordem nunca muda. O tamanho decide quem faz cada etapa: um agente, ou o Passo sozinho (auto).</text>
+</svg>

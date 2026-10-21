@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 40" role="img" aria-label="passo">
+  <g transform="translate(0 4)">
+    <rect x="2" y="22" width="4.5" height="6" rx="1" fill="#EDEDE8"/>
+    <rect x="8" y="18" width="4.5" height="10" rx="1" fill="#EDEDE8"/>
+    <rect x="14" y="14" width="4.5" height="14" rx="1" fill="#EDEDE8"/>
+    <rect x="20" y="10" width="4.5" height="18" rx="1" fill="#EDEDE8"/>
+    <rect x="26" y="6" width="4.5" height="22" rx="1" fill="#8CC4AC"/>
+  </g>
+  <text x="44" y="29" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif" font-size="26" font-weight="600" letter-spacing="-0.5" fill="#EDEDE8">passo</text>
+</svg>
