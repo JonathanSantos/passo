@@ -60,17 +60,50 @@ const GIT_FILE_OPS: [&str; 3] = ["rm", "mv", "clean"];
 pub fn dev_command_in(command: &str) -> Option<&'static str> {
     let words: Vec<&str> = command
         .split(|c: char| c.is_whitespace() || c == ';' || c == '&' || c == '|')
+        .filter(|w| !w.is_empty())
         .collect();
-    for pair in words.windows(2) {
+    for (i, pair) in words.windows(2).enumerate() {
         let program = pair[0].rsplit('/').next().unwrap_or("");
-        if program == "passo"
-            && let Some(dev) = DEV_COMMANDS.iter().find(|d| **d == pair[1])
-        {
+        if program != "passo" {
+            continue;
+        }
+        if let Some(dev) = DEV_COMMANDS.iter().find(|d| **d == pair[1]) {
             return Some(dev);
+        }
+        // `passo map` is the agent's; cancelling a mapping is the dev's.
+        if pair[1] == "map"
+            && words[i + 2..]
+                .iter()
+                .take_while(|w| w.starts_with('-'))
+                .any(|w| *w == "--cancel")
+        {
+            return Some("map --cancel");
         }
     }
     None
 }
+
+/// What the project is busy with, as the lock sees it.
+#[derive(Debug, Clone, Copy)]
+pub enum Activity<'a> {
+    Idle,
+    Run(&'a Run),
+    /// An agent is exploring the project to write its map: read-only.
+    Mapping,
+}
+
+impl<'a> Activity<'a> {
+    /// An active run wins; otherwise a pending mapping; otherwise nothing.
+    pub fn of(run: Option<&'a Run>, mapping: bool) -> Activity<'a> {
+        match run.filter(|r| r.active()) {
+            Some(run) => Activity::Run(run),
+            None if mapping => Activity::Mapping,
+            None => Activity::Idle,
+        }
+    }
+}
+
+pub const MAPPING_READ_ONLY: &str = "o mapeamento é só leitura: o mapa é entregue com passo done";
 
 fn git_write_in(command: &str) -> Option<&'static str> {
     let words: Vec<&str> = command
@@ -122,15 +155,17 @@ pub fn dev_command_refusal(command: &str) -> String {
     )
 }
 
-pub fn judge(tool: &ToolUse, root: &Path, run: Option<&Run>) -> Verdict {
+pub fn judge(tool: &ToolUse, root: &Path, activity: Activity) -> Verdict {
     if tool.kind == ToolKind::Exec
         && let Some(command) = &tool.command
         && let Some(dev) = dev_command_in(command)
     {
         return Verdict::Deny(dev_command_refusal(dev));
     }
-    let Some(run) = run.filter(|r| r.active()) else {
-        return Verdict::Allow;
+    let run = match activity {
+        Activity::Idle => return Verdict::Allow,
+        Activity::Run(run) => Some(run),
+        Activity::Mapping => None,
     };
     if tool.paths.iter().any(|p| inside_passo_dir(root, p)) || tool.command.as_deref().is_some_and(mentions_passo_dir) {
         return Verdict::Deny("a pasta .passo é do Passo: use `passo next`, `passo status` e `passo plan`".into());
@@ -147,6 +182,9 @@ pub fn judge(tool: &ToolUse, root: &Path, run: Option<&Run>) -> Verdict {
                 "`git {git}` muda arquivos por fora da trava: apague ou renomeie com as ferramentas de edição, e deixe o git com o Passo"
             ));
         }
+        if run.is_none() {
+            return Verdict::Deny(MAPPING_READ_ONLY.into());
+        }
         return Verdict::Deny(format!(
             "`git {git}` é com o Passo durante um run: ele faz os commits e cuida da branch"
         ));
@@ -156,6 +194,9 @@ pub fn judge(tool: &ToolUse, root: &Path, run: Option<&Run>) -> Verdict {
         if in_project.is_empty() {
             return Verdict::Allow;
         }
+        let Some(run) = run else {
+            return Verdict::Deny(MAPPING_READ_ONLY.into());
+        };
         if run.turn() == Turn::Dev {
             return Verdict::Deny(
                 "é a vez do dev; nada se escreve no projeto agora. Mostre ao dev o que o Passo pediu e pare.".into(),
@@ -175,8 +216,13 @@ pub fn judge(tool: &ToolUse, root: &Path, run: Option<&Run>) -> Verdict {
 }
 
 /// Keeps the agent from ending its turn while the run waits on it. Dev turns always let it stop.
-pub fn judge_stop(run: Option<&Run>) -> Option<String> {
-    let run = run.filter(|r| r.active() && r.turn() == Turn::Agent)?;
+pub fn judge_stop(activity: Activity) -> Option<String> {
+    let run = match activity {
+        Activity::Idle => return None,
+        Activity::Mapping => return Some("O Passo espera o mapa: entregue com passo done <arquivo>.".into()),
+        Activity::Run(run) => run,
+    };
+    let run = Some(run).filter(|r| r.active() && r.turn() == Turn::Agent)?;
     Some(format!(
         "O Passo espera você ({}). Rode `passo next` e siga a instrução; termine com `passo done`. Dúvida que muda o resultado vira `passo ask`.",
         run.headline()
@@ -216,13 +262,19 @@ mod tests {
     #[test]
     fn dev_commands_are_never_the_agents() {
         let root = Path::new("/p");
-        assert!(matches!(judge(&exec("passo ok 1b"), root, None), Verdict::Deny(_)));
         assert!(matches!(
-            judge(&exec("cd x && ~/.local/bin/passo stop"), root, None),
+            judge(&exec("passo ok 1b"), root, Activity::Idle),
             Verdict::Deny(_)
         ));
-        assert_eq!(judge(&exec("passo done \"feito\""), root, None), Verdict::Allow);
-        assert_eq!(judge(&exec("echo ok"), root, None), Verdict::Allow);
+        assert!(matches!(
+            judge(&exec("cd x && ~/.local/bin/passo stop"), root, Activity::Idle),
+            Verdict::Deny(_)
+        ));
+        assert_eq!(
+            judge(&exec("passo done \"feito\""), root, Activity::Idle),
+            Verdict::Allow
+        );
+        assert_eq!(judge(&exec("echo ok"), root, Activity::Idle), Verdict::Allow);
     }
 
     #[test]
@@ -230,10 +282,13 @@ mod tests {
         let root = Path::new("/p");
         let refine = run_at(Stage::Refinar);
         assert!(matches!(
-            judge(&write("/p/src/a.rs"), root, Some(&refine)),
+            judge(&write("/p/src/a.rs"), root, Activity::Run(&refine)),
             Verdict::Deny(_)
         ));
-        assert_eq!(judge(&write("/tmp/draft.json"), root, Some(&refine)), Verdict::Allow);
+        assert_eq!(
+            judge(&write("/tmp/draft.json"), root, Activity::Run(&refine)),
+            Verdict::Allow
+        );
         let mut build = run_at(Stage::Construir);
         build.steps.push(crate::model::Step {
             id: "S1".into(),
@@ -241,13 +296,22 @@ mod tests {
             status: crate::model::StepStatus::Doing,
             ..Default::default()
         });
-        assert_eq!(judge(&write("/p/src/a.rs"), root, Some(&build)), Verdict::Allow);
+        assert_eq!(
+            judge(&write("/p/src/a.rs"), root, Activity::Run(&build)),
+            Verdict::Allow
+        );
         assert!(matches!(
-            judge(&write("/p/.passo/runs/x.json"), root, Some(&build)),
+            judge(&write("/p/.passo/runs/x.json"), root, Activity::Run(&build)),
             Verdict::Deny(_)
         ));
-        assert!(matches!(judge(&write("/p/.env"), root, Some(&build)), Verdict::Deny(_)));
-        assert_eq!(judge(&write("/p/.env.example"), root, Some(&build)), Verdict::Allow);
+        assert!(matches!(
+            judge(&write("/p/.env"), root, Activity::Run(&build)),
+            Verdict::Deny(_)
+        ));
+        assert_eq!(
+            judge(&write("/p/.env.example"), root, Activity::Run(&build)),
+            Verdict::Allow
+        );
     }
 
     #[test]
@@ -255,29 +319,57 @@ mod tests {
         let root = Path::new("/p");
         let run = run_at(Stage::Construir);
         assert!(matches!(
-            judge(&exec("git -C /p commit -m x"), root, Some(&run)),
+            judge(&exec("git -C /p commit -m x"), root, Activity::Run(&run)),
             Verdict::Deny(_)
         ));
         assert!(matches!(
-            judge(&exec("git branch -D main"), root, Some(&run)),
+            judge(&exec("git branch -D main"), root, Activity::Run(&run)),
             Verdict::Deny(_)
         ));
         assert!(matches!(
-            judge(&exec("git clean -fd"), root, Some(&run)),
+            judge(&exec("git clean -fd"), root, Activity::Run(&run)),
             Verdict::Deny(_)
         ));
         assert!(matches!(
-            judge(&exec("git rm src/old.rs"), root, Some(&run)),
+            judge(&exec("git rm src/old.rs"), root, Activity::Run(&run)),
             Verdict::Deny(_)
         ));
-        assert_eq!(judge(&exec("git diff HEAD"), root, Some(&run)), Verdict::Allow);
-        assert_eq!(judge(&exec("git commit -m x"), root, None), Verdict::Allow);
+        assert_eq!(judge(&exec("git diff HEAD"), root, Activity::Run(&run)), Verdict::Allow);
+        assert_eq!(judge(&exec("git commit -m x"), root, Activity::Idle), Verdict::Allow);
     }
 
     #[test]
     fn stop_only_blocks_on_agent_turn() {
         let run = run_at(Stage::Construir);
-        assert!(judge_stop(Some(&run)).is_some());
-        assert!(judge_stop(None).is_none());
+        assert!(judge_stop(Activity::Run(&run)).is_some());
+        assert!(judge_stop(Activity::Idle).is_none());
+    }
+
+    #[test]
+    fn mapping_is_read_only_and_cancelling_it_is_the_devs() {
+        let root = Path::new("/p");
+        assert_eq!(
+            judge(&write("/p/src/a.rs"), root, Activity::Mapping),
+            Verdict::Deny(MAPPING_READ_ONLY.into())
+        );
+        assert!(matches!(
+            judge(&write("/p/.passo/map/x.md"), root, Activity::Mapping),
+            Verdict::Deny(_)
+        ));
+        assert_eq!(judge(&write("/tmp/mapa.json"), root, Activity::Mapping), Verdict::Allow);
+        let read = ToolUse {
+            name: "Read".into(),
+            kind: ToolKind::Read,
+            paths: vec!["/p/src/a.rs".into()],
+            command: None,
+        };
+        assert_eq!(judge(&read, root, Activity::Mapping), Verdict::Allow);
+        assert!(matches!(
+            judge(&exec("git stash"), root, Activity::Mapping),
+            Verdict::Deny(_)
+        ));
+        assert_eq!(dev_command_in("passo map --cancel"), Some("map --cancel"));
+        assert_eq!(dev_command_in("passo map"), None);
+        assert!(judge_stop(Activity::Mapping).is_some());
     }
 }

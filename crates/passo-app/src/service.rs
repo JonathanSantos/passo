@@ -130,7 +130,11 @@ impl App {
         Engine::new(&self.config)
     }
 
-    fn git(&self) -> Git {
+    pub(crate) fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        self.clock.now()
+    }
+
+    pub(crate) fn git(&self) -> Git {
         Git::new(&self.layout.root)
     }
 
@@ -186,6 +190,13 @@ impl App {
                 run.headline()
             );
         }
+        if self.mapping() {
+            return Err(Rejected(
+                "há um mapeamento em andamento; entregue o mapa com passo done ou cancele com passo map --cancel"
+                    .into(),
+            )
+            .into());
+        }
         let now = self.clock.now();
         let size = size.unwrap_or(self.config.default_size);
         let id = make_id(request, now);
@@ -240,20 +251,27 @@ impl App {
     }
 
     pub fn next(&self) -> Result<String> {
+        if self.store.active().is_none() && self.mapping() {
+            return Ok(self.map_text());
+        }
         match self.store.latest() {
             Some(run) => Ok(self.next_text(&run)),
             None => Ok("Nenhum run ainda. Comece com: passo start \"pedido do dev\" --size m".into()),
         }
     }
 
-    pub fn next_text(&self, run: &Run) -> String {
-        let platforms = self.platforms();
-        let delegation = |agent: &str| match platforms.as_slice() {
+    /// How the main agent hands work to `passo-<agent>` on the installed platform(s).
+    pub(crate) fn delegation(&self, agent: &str) -> String {
+        match self.platforms().as_slice() {
             [one] => one.delegation(agent),
             _ => format!(
                 "Se a sua plataforma roda subagentes, use `passo-{agent}` e passe a ele esta saída inteira; senão, faça você mesmo, seguindo o papel abaixo."
             ),
-        };
+        }
+    }
+
+    pub fn next_text(&self, run: &Run) -> String {
+        let delegation = |agent: &str| self.delegation(agent);
         let tree = std::fs::read_to_string(self.layout.tree(&run.id)).ok();
         render::next(&View {
             run,
@@ -266,6 +284,9 @@ impl App {
     }
 
     pub fn done(&self, input: DoneInput) -> Result<String> {
+        if self.store.active().is_none() && self.mapping() {
+            return self.map_done(input);
+        }
         let run = self.active()?;
         self.ensure_run_branch(&run)?;
         if run.turn() == Turn::Dev {
@@ -398,6 +419,14 @@ impl App {
 
     /// One screen for the dev: where the run is and what it waits for.
     pub fn status_text(&self) -> String {
+        if self.store.active().is_none()
+            && let Some(task) = passo_store::map::load_task(&self.layout)
+        {
+            return format!(
+                "Mapeamento do projeto em andamento desde {}.\nO agente entrega o mapa com `passo done <arquivo>`; o dev cancela com `passo map --cancel`.\n",
+                task.started_at.format("%d/%m %H:%M")
+            );
+        }
         let Some(run) = self.store.latest() else {
             return "Nenhum run ainda. No agente, peça algo \"com o passo\", ou rode: passo start \"pedido\"".into();
         };
@@ -942,7 +971,7 @@ fn draft(run: &Run, kind: &'static str, actor: Actor, text: String) -> EventDraf
     }
 }
 
-fn globs(patterns: &[String]) -> Result<GlobSet> {
+pub(crate) fn globs(patterns: &[String]) -> Result<GlobSet> {
     let mut builder = GlobSetBuilder::new();
     for pattern in patterns {
         builder.add(Glob::new(pattern).with_context(|| format!("padrão inválido: {pattern}"))?);
@@ -951,7 +980,7 @@ fn globs(patterns: &[String]) -> Result<GlobSet> {
 }
 
 /// A file path, `-` for stdin, or the content itself.
-fn read_input(text: &str) -> Result<String> {
+pub(crate) fn read_input(text: &str) -> Result<String> {
     let text = text.trim();
     if text.is_empty() {
         return Err(

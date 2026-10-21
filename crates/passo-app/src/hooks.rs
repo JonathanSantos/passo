@@ -55,6 +55,8 @@ fn decide(
         app = app.with_reporter(reporter);
     }
     let run = app.store.active();
+    let mapping = run.is_none() && app.mapping();
+    let activity = lock::Activity::of(run.as_ref(), mapping);
     if let Some(run) = &run {
         for path in [&input.transcript, &input.agent_transcript].into_iter().flatten() {
             let transcript = Transcript {
@@ -71,6 +73,9 @@ fn decide(
                 "Passo: há um run em andamento ({}). Rode `passo next` para ver o que ele precisa.",
                 run.headline()
             )),
+            None if mapping => HookReply::Context(
+                "Passo: há um mapeamento do projeto em andamento. Rode `passo next` para ver a tarefa.".into(),
+            ),
             None => HookReply::Allow,
         }),
         HookEvent::UserPrompt => {
@@ -111,8 +116,15 @@ fn decide(
                 return Ok(HookReply::Allow);
             };
             let root = std::fs::canonicalize(&app.layout.root).unwrap_or(app.layout.root.clone());
-            let verdict = lock::judge(&tool, &root, run.as_ref());
+            let verdict = lock::judge(&tool, &root, activity);
             let mut warning = None;
+            if mapping {
+                let (kind, text) = match &verdict {
+                    Verdict::Allow => ("tool", describe(&tool, &root)),
+                    Verdict::Deny(reason) => ("lock.denied", reason.clone()),
+                };
+                app.map_log_event(kind, text, json!({ "tool": tool.name, "call": describe(&tool, &root) }));
+            }
             if let Some(run) = run.as_ref().filter(|r| r.active()) {
                 let step = run.current_step().filter(|_| run.stage == Stage::Construir);
                 let (kind, text) = match &verdict {
@@ -142,7 +154,17 @@ fn decide(
             })
         }
         HookEvent::Stop => {
-            let (Some(run), Some(reason)) = (&run, lock::judge_stop(run.as_ref())) else {
+            if mapping {
+                let Some(reason) = lock::judge_stop(activity) else {
+                    return Ok(HookReply::Allow);
+                };
+                return Ok(if app.map_count_stop() <= MAX_STOP_BLOCKS {
+                    HookReply::Block(reason)
+                } else {
+                    HookReply::Allow
+                });
+            }
+            let (Some(run), Some(reason)) = (&run, lock::judge_stop(activity)) else {
                 return Ok(HookReply::Allow);
             };
             let attempts = run.current_step().map(|s| s.attempts).unwrap_or(0);

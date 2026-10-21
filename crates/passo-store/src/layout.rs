@@ -50,6 +50,14 @@ impl Layout {
     pub fn project_map(&self) -> PathBuf {
         self.passo().join("map")
     }
+    /// The mapping in progress (live state, out of git).
+    pub fn map_task(&self) -> PathBuf {
+        self.project_map().join(".task.json")
+    }
+    /// The mapping's own event log, kept in git next to the map.
+    pub fn map_log(&self) -> PathBuf {
+        self.project_map().join("log.jsonl")
+    }
     pub fn context(&self) -> PathBuf {
         self.passo().join("context.md")
     }

@@ -71,6 +71,12 @@ enum Cmd {
     Size { tamanho: String },
     /// [dev] Encerra o run (o trabalho fica no branch)
     Stop { motivo: Vec<String> },
+    /// Mapeia o projeto: o agente explora e entrega o mapa com passo done (só leitura)
+    Map {
+        /// [dev] Cancela o mapeamento em andamento
+        #[arg(long)]
+        cancel: bool,
+    },
     /// Onde o run está e o que ele espera
     Status,
     /// O pedido refinado, o plano e as decisões
@@ -166,6 +172,7 @@ fn dev_subcommand(command: &Cmd) -> Option<&'static str> {
         Cmd::Change { .. } => Some("change"),
         Cmd::Size { .. } => Some("size"),
         Cmd::Stop { .. } => Some("stop"),
+        Cmd::Map { cancel: true } => Some("map --cancel"),
         _ => None,
     }
 }
@@ -220,6 +227,10 @@ fn run(command: Cmd) -> Result<String> {
         Cmd::Change { mudanca } => decide(DevAction::Change(joined(mudanca))),
         Cmd::Size { tamanho } => decide(DevAction::Resize(size(&tamanho)?)),
         Cmd::Stop { motivo } => decide(DevAction::Stop(joined(motivo))),
+        Cmd::Map { cancel } => {
+            let app = app()?;
+            if cancel { app.map_cancel() } else { app.map_start() }
+        }
         Cmd::Status => Ok(app()?.status_text()),
         Cmd::Plan => plan(),
         Cmd::Runs => runs(),

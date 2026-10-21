@@ -31,8 +31,20 @@ impl Store {
     pub fn init(&self) -> Result<()> {
         std::fs::create_dir_all(self.layout.runs())?;
         let ignore = self.layout.passo().join(".gitignore");
-        if !ignore.exists() {
-            std::fs::write(ignore, "runs/\ncurrent\n*.lock\n")?;
+        let current = std::fs::read_to_string(&ignore).unwrap_or_default();
+        let mut text = if current.is_empty() {
+            "runs/\ncurrent\n*.lock\n".to_string()
+        } else {
+            current.clone()
+        };
+        if !text.lines().any(|l| l.trim() == "map/.task.json") {
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str("map/.task.json\n");
+        }
+        if text != current {
+            std::fs::write(ignore, text)?;
         }
         Ok(())
     }

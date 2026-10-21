@@ -103,6 +103,7 @@ passo ui
 | `passo next`                      | a tarefa da vez                                          |
 | `passo done <arquivo\|"resumo">`  | entrega a etapa (`--vazio`, `--nota "…"`)                |
 | `passo ask "<pergunta>" "<opção>"…` | pergunta ao dev, a recomendada primeiro                |
+| `passo map`                       | começa o mapeamento do projeto (entregue com `passo done`) |
 
 | Do dev                            |                                                          |
 | --------------------------------- | -------------------------------------------------------- |
@@ -111,6 +112,7 @@ passo ui
 | `passo change "<mudança>"`        | muda o pedido no meio do run                             |
 | `passo size <t>`                  | troca o tamanho                                          |
 | `passo stop`                      | encerra (o trabalho fica no branch)                      |
+| `passo map --cancel`              | cancela um mapeamento em andamento                       |
 
 | Ver                               |                                                          |
 | --------------------------------- | -------------------------------------------------------- |
@@ -140,6 +142,10 @@ Erros de domínio usam `thiserror`; nada de `unwrap()` fora de testes.
 ```
 
 Agentes, etapas, checklists de domínio, tamanhos e modelos: veja [`docs/EXTENDER.md`](docs/EXTENDER.md).
+
+**O mapa do projeto.** Peça ao agente "com o passo, mapeie o projeto" (ou rode `passo map`): um agente explorador lê o projeto, só lendo, e entrega um mapa com as áreas, as práticas e as bibliotecas. O Passo confere cada campo no disco (os caminhos casam arquivos rastreados, as fontes existem, nada mudou no projeto durante o mapeamento) e grava `.passo/map/` em Markdown, para você commitar e editar à mão quando quiser.
+
+A cada etapa, o Passo mostra só a parte do mapa que interessa: em Refinar, as áreas citadas no pedido; em Planejar, as que cobrem os arquivos do pedido, mais as que elas usam; em Construir, só a área do passo. O mapa é opcional: sem ele, o Passo mostra a árvore de pastas que ele mesmo gera.
 
 ## Simulação com modelos baratos
 

@@ -7,11 +7,12 @@ macro_rules! asset {
     };
 }
 
-pub const AGENTS: [(&str, &str); 4] = [
+pub const AGENTS: [(&str, &str); 5] = [
     ("refinador", asset!("agents/refinador.md")),
     ("planejador", asset!("agents/planejador.md")),
     ("construtor", asset!("agents/construtor.md")),
     ("revisor", asset!("agents/revisor.md")),
+    ("explorador", asset!("agents/explorador.md")),
 ];
 
 pub const STAGES: [(&str, &str); 4] = [

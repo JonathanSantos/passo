@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::answers::{Answer, Decision};
 use crate::config::{Config, Mode, Profile};
-use crate::lock::{self, ToolKind, ToolUse, Verdict};
+use crate::lock::{self, Activity, ToolKind, ToolUse, Verdict};
 use crate::model::*;
 use crate::spec::{Brief, Invalid, Plan, Question, Review};
 
@@ -321,7 +321,7 @@ impl<'a> Engine<'a> {
                 paths: vec![],
                 command: Some(step.test_command.clone()),
             };
-            if let Verdict::Deny(reason) = lock::judge(&tool, Path::new("/"), Some(run)) {
+            if let Verdict::Deny(reason) = lock::judge(&tool, Path::new("/"), Activity::Run(run)) {
                 let reason = reason.split(". ").next().unwrap_or(&reason).trim_end_matches('.');
                 refused.push(format!(
                     "`passos[{i}].rodar` não pode ser \"{}\": {reason}",

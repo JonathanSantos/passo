@@ -592,3 +592,87 @@ fn the_action_budget_warns_without_blocking() {
         1
     );
 }
+
+const MAP_JSON: &str = r#"{
+  "projeto": {"stack": "texto puro", "testar": "true", "convencoes": ["um arquivo por assunto"], "fontes": ["src/lib.txt"]},
+  "areas": [{"id": "tarefas", "caminhos": ["src/lib.txt"], "libs": ["commander"], "tags": ["tarefas"],
+             "resumo": "As tarefas.", "praticas": ["texto simples"], "testes": "nenhum ainda", "fontes": ["src/lib.txt"]}],
+  "libs": [{"nome": "commander", "uso": "lê os argumentos", "fontes": ["src/lib.txt"]}]
+}"#;
+
+#[test]
+fn mapping_explores_read_only_and_writes_a_checked_map() {
+    let p = Project::new("mapping");
+    let out = p.app().map_start().unwrap();
+    assert!(out.contains("# Agente: explorador"), "{out}");
+    assert!(out.contains("Árvore do projeto") && out.contains("src/"), "{out}");
+    assert!(p.root.join(".passo/map/.task.json").exists());
+    assert!(
+        p.app()
+            .start("Algo", None)
+            .unwrap_err()
+            .to_string()
+            .contains("mapeamento em andamento")
+    );
+
+    let denied = p.hook(
+        HookEvent::PreToolUse,
+        tool(&p.root, "Write", serde_json::json!({"file_path": "src/x.txt"})),
+    );
+    assert!(denied.unwrap().contains("o mapeamento é só leitura"));
+    assert!(
+        p.hook(HookEvent::Stop, serde_json::json!({ "cwd": p.root }))
+            .unwrap()
+            .contains("O Passo espera o mapa")
+    );
+
+    let wrong = p.draft(
+        "map-bad",
+        &MAP_JSON.replace(r#""caminhos": ["src/lib.txt"]"#, r#""caminhos": ["lib/**"]"#),
+    );
+    let err = p
+        .app()
+        .done(DoneInput {
+            text: wrong,
+            ..Default::default()
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("`areas[0].caminhos[0]` não casa nenhum arquivo rastreado"),
+        "{err}"
+    );
+
+    let good = p.draft("map-ok", MAP_JSON);
+    let out = p.done(&good);
+    assert!(out.contains("Mapa salvo: 1 áreas, 1 libs"), "{out}");
+    for file in ["projeto.md", "areas/tarefas.md", "libs/commander.md"] {
+        assert!(p.root.join(".passo/map").join(file).exists(), "{file}");
+    }
+    assert!(!p.root.join(".passo/map/.task.json").exists());
+    let map = passo_store::map::load(&p.app().layout).unwrap().unwrap();
+    assert_eq!(map.areas.len(), 1);
+    assert!(
+        p.hook(HookEvent::Stop, serde_json::json!({ "cwd": p.root })).is_none(),
+        "the stop hook lets go after"
+    );
+    let log = std::fs::read_to_string(p.root.join(".passo/map/log.jsonl")).unwrap();
+    assert!(log.contains("map.invalid") && log.contains("map.saved") && log.contains("lock.denied"));
+}
+
+#[test]
+fn a_mapping_that_changes_files_is_refused() {
+    let p = Project::new("mapping-breach");
+    p.app().map_start().unwrap();
+    p.write("src/lib.txt", "mudou por fora do hook\n");
+    let good = p.draft("map-breach", MAP_JSON);
+    let err = p
+        .app()
+        .done(DoneInput {
+            text: good,
+            ..Default::default()
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("só leitura") && err.contains("src/lib.txt"), "{err}");
+}

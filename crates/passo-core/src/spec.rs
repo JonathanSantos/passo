@@ -581,6 +581,301 @@ pub const REVIEW_TEMPLATE: &str = r#"{
   "observacoes": ["o que você achou além dos critérios (opcional)"]
 }"#;
 
+/// The map an exploring agent hands in, before Passo checks it against the disk and writes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapDraft {
+    pub project: ProjectDraft,
+    pub areas: Vec<AreaDraft>,
+    pub libs: Vec<LibDraft>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectDraft {
+    pub stack: String,
+    pub run: String,
+    pub test: String,
+    pub conventions: Vec<String>,
+    pub sources: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AreaDraft {
+    pub id: String,
+    pub paths: Vec<String>,
+    pub depends_on: Vec<String>,
+    pub libs: Vec<String>,
+    pub tags: Vec<String>,
+    pub summary: String,
+    pub practices: Vec<String>,
+    pub tests: String,
+    pub sources: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibDraft {
+    pub name: String,
+    pub usage: String,
+    pub sources: Vec<String>,
+}
+
+const MAX_AREAS: usize = 12;
+const MAX_PRACTICES: usize = 8;
+const MAX_AREA_LINES: usize = 40;
+
+impl AreaDraft {
+    /// The area's Markdown body: summary, practices, tests.
+    pub fn body(&self) -> String {
+        let mut out = self.summary.trim().to_string();
+        if !self.practices.is_empty() {
+            out.push_str("\n\nPráticas:\n");
+            out.push_str(
+                &self
+                    .practices
+                    .iter()
+                    .map(|p| format!("- {p}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
+        }
+        if !self.tests.is_empty() {
+            out.push_str(&format!("\n\nTestes: {}", self.tests.trim()));
+        }
+        out
+    }
+}
+
+impl MapDraft {
+    /// The map to write, every node stamped with the commit it was made at.
+    pub fn into_map(self, commit: Option<String>) -> crate::map::Map {
+        use crate::map::{Node, NodeKind};
+        let p = &self.project;
+        let mut body = format!("Stack: {}", p.stack);
+        if !p.run.is_empty() {
+            body.push_str(&format!("\nRodar: `{}`", p.run));
+        }
+        body.push_str(&format!("\nTestar: `{}`", p.test));
+        if !p.conventions.is_empty() {
+            body.push_str("\n\nConvenções:\n");
+            body.push_str(
+                &p.conventions
+                    .iter()
+                    .map(|c| format!("- {c}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
+        }
+        crate::map::Map {
+            project: Some(Node {
+                id: "projeto".into(),
+                kind: NodeKind::Project,
+                sources: p.sources.clone(),
+                commit: commit.clone(),
+                body,
+                ..Default::default()
+            }),
+            areas: self
+                .areas
+                .iter()
+                .map(|a| Node {
+                    id: a.id.clone(),
+                    kind: NodeKind::Area,
+                    paths: a.paths.clone(),
+                    depends_on: a.depends_on.clone(),
+                    libs: a.libs.clone(),
+                    tags: a.tags.clone(),
+                    sources: a.sources.clone(),
+                    commit: commit.clone(),
+                    body: a.body(),
+                })
+                .collect(),
+            libs: self
+                .libs
+                .iter()
+                .map(|l| Node {
+                    id: l.name.clone(),
+                    kind: NodeKind::Lib,
+                    sources: l.sources.clone(),
+                    commit: commit.clone(),
+                    body: l.usage.trim().to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+        }
+    }
+}
+
+fn is_slug(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+fn sentences(text: &str) -> usize {
+    text.split(['.', '!', '?'])
+        .filter(|s| s.trim().chars().any(char::is_alphanumeric))
+        .count()
+}
+
+/// Parses the map JSON. Form only: whether the paths and sources exist is for the app to check on disk.
+/// `manifest_libs` are the dependencies the project's manifests declare (an area may cite those too).
+pub fn parse_map(text: &str, manifest_libs: &[String]) -> Result<MapDraft, Invalid> {
+    let root = extract_json(text)?;
+    if !root.is_object() {
+        return Err(Invalid(vec!["o mapa deve ser um objeto JSON".into()]));
+    }
+    let mut r = Reader::new(&root);
+    let project = match root.get("projeto") {
+        Some(p) if p.is_object() => ProjectDraft {
+            stack: r.text(p, "projeto", "stack", true),
+            run: r.text(p, "projeto", "rodar", false),
+            test: r.text(p, "projeto", "testar", true),
+            conventions: r.list(p, "projeto", "convencoes", false),
+            sources: r.list(p, "projeto", "fontes", true),
+        },
+        _ => {
+            r.errors
+                .push("`projeto` é obrigatório (um objeto com stack, testar e fontes)".into());
+            ProjectDraft {
+                stack: String::new(),
+                run: String::new(),
+                test: String::new(),
+                conventions: vec![],
+                sources: vec![],
+            }
+        }
+    };
+    let mut libs = vec![];
+    for (i, l) in r.objects(&root, "", "libs", false).into_iter().enumerate() {
+        let path = format!("libs[{i}]");
+        libs.push(LibDraft {
+            name: r.text(l, &path, "nome", true),
+            usage: r.text(l, &path, "uso", true),
+            sources: r.list(l, &path, "fontes", true),
+        });
+    }
+    let raw_areas = r.objects(&root, "", "areas", true);
+    if raw_areas.len() > MAX_AREAS {
+        r.errors.push(format!(
+            "`areas` tem {} itens; o mapa aceita de 1 a {MAX_AREAS}: junte áreas parecidas",
+            raw_areas.len()
+        ));
+    }
+    let mut areas: Vec<AreaDraft> = vec![];
+    for (i, a) in raw_areas.into_iter().enumerate() {
+        let path = format!("areas[{i}]");
+        let area = AreaDraft {
+            id: r.text(a, &path, "id", true),
+            paths: r.list(a, &path, "caminhos", true),
+            depends_on: r.list(a, &path, "depende_de", false),
+            libs: r.list(a, &path, "libs", false),
+            tags: r.list(a, &path, "tags", false),
+            summary: r.text(a, &path, "resumo", true),
+            practices: r.list(a, &path, "praticas", false),
+            tests: r.text(a, &path, "testes", false),
+            sources: r.list(a, &path, "fontes", true),
+        };
+        if !area.id.is_empty() && !is_slug(&area.id) {
+            r.errors.push(format!(
+                "`{path}.id` deve ser só letras minúsculas, números e hífen (como `armazenamento`)"
+            ));
+        }
+        if areas.iter().any(|x| x.id == area.id) && !area.id.is_empty() {
+            r.errors.push(format!("`{path}.id` repete `{}`", area.id));
+        }
+        let n = sentences(&area.summary);
+        if !area.summary.is_empty() && !(1..=3).contains(&n) {
+            r.errors.push(format!("`{path}.resumo` tem {n} frases; use de 1 a 3"));
+        }
+        if area.practices.len() > MAX_PRACTICES {
+            r.errors.push(format!(
+                "`{path}.praticas` tem {} itens; use até {MAX_PRACTICES}",
+                area.practices.len()
+            ));
+        }
+        let lines = area.body().lines().count();
+        if lines > MAX_AREA_LINES {
+            r.errors.push(format!(
+                "`{path}` gera {lines} linhas; uma área tem no máximo {MAX_AREA_LINES}: resuma"
+            ));
+        }
+        areas.push(area);
+    }
+    for (i, area) in areas.iter().enumerate() {
+        for dep in &area.depends_on {
+            if !dep.contains('/') && !areas.iter().any(|a| &a.id == dep) {
+                r.errors
+                    .push(format!("`areas[{i}].depende_de` cita `{dep}`, que não é uma área"));
+            }
+        }
+        for lib in &area.libs {
+            if !libs.iter().any(|l| &l.name == lib) && !manifest_libs.contains(lib) {
+                r.errors.push(format!(
+                    "`areas[{i}].libs` cita `{lib}`, que não está em `libs` nem nos manifestos"
+                ));
+            }
+        }
+    }
+    if let Some(cycle) = dependency_cycle(&areas) {
+        r.errors
+            .push(format!("`depende_de` faz um ciclo: {}", cycle.join(" → ")));
+    }
+    r.finish(MapDraft { project, areas, libs })
+}
+
+/// The first dependency cycle among the areas, as a path of ids, if there is one.
+fn dependency_cycle(areas: &[AreaDraft]) -> Option<Vec<String>> {
+    fn visit(id: &str, areas: &[AreaDraft], path: &mut Vec<String>, done: &mut Vec<String>) -> Option<Vec<String>> {
+        if let Some(start) = path.iter().position(|p| p == id) {
+            let mut cycle = path[start..].to_vec();
+            cycle.push(id.to_string());
+            return Some(cycle);
+        }
+        if done.iter().any(|d| d == id) {
+            return None;
+        }
+        path.push(id.to_string());
+        if let Some(area) = areas.iter().find(|a| a.id == id) {
+            for dep in &area.depends_on {
+                if let Some(cycle) = visit(dep, areas, path, done) {
+                    return Some(cycle);
+                }
+            }
+        }
+        path.pop();
+        done.push(id.to_string());
+        None
+    }
+    let mut done = vec![];
+    areas.iter().find_map(|a| visit(&a.id, areas, &mut vec![], &mut done))
+}
+
+pub const MAP_TEMPLATE: &str = r#"{
+  "projeto": {
+    "stack": "Node 22, sem framework",
+    "rodar": "node src/main.js",
+    "testar": "npm test",
+    "convencoes": ["funções puras em src/, IO só nas bordas"],
+    "fontes": ["package.json", "src/main.js"]
+  },
+  "areas": [
+    {
+      "id": "tarefas",
+      "caminhos": ["src/tasks.js", "src/cli.js"],
+      "depende_de": ["armazenamento"],
+      "libs": ["commander"],
+      "tags": ["cli", "tarefas"],
+      "resumo": "o que esta área faz, em 1 a 3 frases",
+      "praticas": ["como se escreve código aqui, uma por item"],
+      "testes": "onde e como se testa esta área",
+      "fontes": ["src/tasks.js", "test/tasks.test.js"]
+    }
+  ],
+  "libs": [
+    { "nome": "commander", "uso": "como o projeto a envolve e onde", "fontes": ["src/cli.js"] }
+  ]
+}"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -662,5 +957,52 @@ mod tests {
         let q = question_from_cli("Q3".into(), "Qual?", &["Um — mais simples".into(), "Dois".into()]).unwrap();
         assert_eq!(q.options[0].why, "mais simples");
         assert_eq!(q.recommended, "A");
+    }
+
+    #[test]
+    fn a_map_needs_existing_dependencies_and_no_cycle() {
+        let map = |deps: &str| {
+            format!(
+                r#"{{"projeto":{{"stack":"Node","testar":"npm test","fontes":["package.json"]}},
+                "areas":[{{"id":"a","caminhos":["src/a.js"],"depende_de":[{deps}],"resumo":"Faz a.","fontes":["src/a.js"]}},
+                         {{"id":"b","caminhos":["src/b.js"],"depende_de":["a"],"resumo":"Faz b.","fontes":["src/b.js"]}}]}}"#
+            )
+        };
+        let ok = parse_map(&map(""), &[]).unwrap();
+        assert_eq!(ok.areas.len(), 2);
+        let err = parse_map(&map(r#""b""#), &[]).unwrap_err();
+        assert!(err.0.iter().any(|e| e.contains("ciclo")), "{err}");
+        let err = parse_map(&map(r#""cache""#), &[]).unwrap_err();
+        assert!(
+            err.0
+                .contains(&"`areas[0].depende_de` cita `cache`, que não é uma área".to_string()),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_map_checks_form_field_by_field() {
+        let text = r#"{"projeto":{"stack":"Node"},"areas":[{"id":"Área X","caminhos":[],"libs":["lodash"],
+            "resumo":"Um. Dois. Três. Quatro.","fontes":["a"]}]}"#;
+        let err = parse_map(text, &[]).unwrap_err().0;
+        for expected in [
+            "`projeto.testar`",
+            "`projeto.fontes`",
+            "`areas[0].id`",
+            "`areas[0].caminhos`",
+            "`areas[0].resumo` tem 4 frases",
+            "cita `lodash`",
+        ] {
+            assert!(err.iter().any(|e| e.contains(expected)), "{expected}: {err:?}");
+        }
+        let with_manifest = text
+            .replace("Um. Dois. Três. Quatro.", "Um.")
+            .replace("Área X", "x")
+            .replace(r#""caminhos":[]"#, r#""caminhos":["a"]"#);
+        let err = parse_map(&with_manifest, &["lodash".into()]).unwrap_err().0;
+        assert!(
+            !err.iter().any(|e| e.contains("lodash")),
+            "a manifest dependency counts: {err:?}"
+        );
     }
 }

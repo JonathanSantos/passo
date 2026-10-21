@@ -569,3 +569,51 @@ fn list(out: &mut String, title: &str, items: &[String]) {
         let _ = writeln!(out, "- {item}");
     }
 }
+
+/// What the explorer reads on `passo map` (and on `passo next` while mapping).
+pub struct MapView<'a> {
+    pub agent: Option<&'a passo_store::AgentDef>,
+    pub delegation: &'a str,
+    pub tree: &'a str,
+    /// The map as it is, so the explorer updates it instead of starting over.
+    pub current: Option<&'a passo_core::map::Map>,
+    pub template: &'a str,
+    pub bin: &'a str,
+}
+
+pub fn map_task(view: &MapView) -> String {
+    let mut out = String::from("passo · mapear o projeto · vez do agente\n\n");
+    if let Some(agent) = view.agent {
+        let _ = writeln!(
+            out,
+            "# Agente: {} (nível {})\n{}\n",
+            agent.name, agent.model, view.delegation
+        );
+        let _ = writeln!(out, "## Papel\n{}\n", agent.body.trim());
+    }
+    out.push_str(
+        "## Tarefa: mapear o projeto\n\
+         1. Leia a árvore abaixo e os manifestos; descubra a stack, como rodar e como testar.\n\
+         2. Divida o projeto em áreas (de 1 a 12), cada uma com os `caminhos` que ela cobre (globs que casam arquivos rastreados).\n\
+         3. Para cada área: um `resumo` de 1 a 3 frases, as `praticas` (até 8) que você viu no código, onde e como se `testes`, e as `fontes`.\n\
+         4. Liste as `libs` que o projeto envolve de um jeito próprio e como as usa.\n\
+         5. Só leia: nada de escrever, instalar ou gerar arquivos no projeto. O Passo confere no git.\n\n",
+    );
+    let _ = writeln!(out, "## Árvore do projeto\n{}\n", view.tree.trim_end());
+    if let Some(map) = view.current {
+        out.push_str("## O mapa atual (atualize o que mudou, mantenha o resto)\n");
+        for area in &map.areas {
+            let _ = writeln!(out, "- {} ({})", area.id, area.paths.join(", "));
+        }
+        for lib in &map.libs {
+            let _ = writeln!(out, "- lib {}", lib.id);
+        }
+        out.push('\n');
+    }
+    let _ = writeln!(
+        out,
+        "## Como entregar\nEscreva este JSON num arquivo temporário e rode `{} done <arquivo>`. O Passo confere que cada caminho casa arquivos rastreados e que cada fonte existe; erros voltam campo a campo.\n\n```json\n{}\n```",
+        view.bin, view.template
+    );
+    out
+}

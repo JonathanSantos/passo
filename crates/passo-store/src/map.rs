@@ -46,6 +46,9 @@ pub fn load(layout: &Layout) -> Result<Option<Map>> {
     for (id, path) in markdown_files(&dir.join("libs")) {
         map.libs.push(read_node(&path, &id, NodeKind::Lib)?);
     }
+    if map.project.is_none() && map.areas.is_empty() && map.libs.is_empty() {
+        return Ok(None);
+    }
     for area in &map.areas {
         for dep in &area.depends_on {
             if !dep.contains('/') && !map.areas.iter().any(|a| &a.id == dep) {
@@ -99,6 +102,36 @@ fn line_of(text: &str, key: &str) -> String {
         .position(|l| l.trim_start().starts_with(&format!("{key}:")))
         .map(|i| format!(" linha {}", i + 1))
         .unwrap_or_default()
+}
+
+/// A mapping in progress: when it began, at which commit, and what the lock and the stop hook keep about it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MapTask {
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub commit: Option<String>,
+    /// Projects the explorer reads: the project itself, then attached ones.
+    pub projects: Vec<String>,
+    /// Files already changed when the mapping began: anything new at delivery broke the read-only rule.
+    #[serde(default)]
+    pub baseline: Vec<String>,
+    /// Times the stop hook kept the agent going.
+    #[serde(default)]
+    pub stops: u32,
+}
+
+pub fn load_task(layout: &Layout) -> Option<MapTask> {
+    std::fs::read_to_string(layout.map_task())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+}
+
+pub fn save_task(layout: &Layout, task: &MapTask) -> Result<()> {
+    write_atomic(&layout.map_task(), serde_json::to_string_pretty(task)?.as_bytes())?;
+    Ok(())
+}
+
+pub fn remove_task(layout: &Layout) {
+    std::fs::remove_file(layout.map_task()).ok();
 }
 
 /// Writes the map and removes areas and libs that left it. Returns the touched paths, relative to the project

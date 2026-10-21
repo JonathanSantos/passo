@@ -33,6 +33,10 @@ Quando a saída disser "vez do dev", **pare**. Mostre ao dev o que o Passo mostr
 
 Depois que o dev responder, rode `{{bin}} next`.
 
+## Mapear o projeto
+
+Quando o dev pedir "mapeie o projeto" (ou o Passo sugerir), rode `{{bin}} map`. A saída é a tarefa do explorador: delegue ao subagente `passo-explorador`, se puder, passando a saída inteira; senão, faça você mesmo, seguindo o papel. O mapeamento é só leitura. Entregue o mapa com `{{bin}} done <arquivo>` e siga o mesmo ciclo `next`/`done` até o Passo dizer que o mapa foi salvo. Cancelar (`{{bin}} map --cancel`) é do dev.
+
 ## Regras
 
 - Dúvida que muda o resultado: `{{bin}} ask "pergunta" "opção recomendada — porquê" "outra opção — porquê"` e pare.
