@@ -290,7 +290,7 @@ fn accepting_from_the_chat_writes_the_report() {
     let reply = p
         .hook(
             HookEvent::UserPrompt,
-            serde_json::json!({"cwd": p.root, "prompt": "ok"}),
+            serde_json::json!({"cwd": p.root, "prompt": "aceito"}),
         )
         .unwrap();
     assert!(reply.contains("respondeu pelo chat"), "{reply}");
@@ -526,4 +526,27 @@ fn the_builder_sees_only_its_neighbourhood() {
     let out = p.app().next().unwrap();
     let shown = out.lines().filter(|l| l.starts_with("- nota ")).count();
     assert!(shown <= 10 && shown > 0, "{shown} notes: {out}");
+}
+
+#[test]
+fn accepting_from_the_chat_needs_aceito() {
+    let p = Project::new("aceito");
+    p.app().start("Trocar o título", Some(passo_core::Size::Pp)).unwrap();
+    p.write("src/lib.txt", "título novo\n");
+    p.done("troquei o título");
+    assert_eq!(p.app().active().unwrap().gate.unwrap().kind, GateKind::Aceitar);
+    let reply = p
+        .hook(
+            HookEvent::UserPrompt,
+            serde_json::json!({"cwd": p.root, "prompt": "ok"}),
+        )
+        .unwrap();
+    assert!(reply.contains("aceito"), "{reply}");
+    assert!(p.app().store.active().is_some(), "a bare ok does not merge");
+    p.hook(
+        HookEvent::UserPrompt,
+        serde_json::json!({"cwd": p.root, "prompt": "aceito"}),
+    )
+    .unwrap();
+    assert!(p.app().store.active().is_none(), "aceito accepts the delivery");
 }

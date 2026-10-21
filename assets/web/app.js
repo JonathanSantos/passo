@@ -117,7 +117,7 @@
     }
     if (g.kind === "aceitar") {
       return `${head}<h3>${esc(run.request)}</h3><p class="muted small">Prova ${esc(proof(run.proof))} · ${run.steps.filter((s) => s.status === "done").length} passo(s) · ${run.rounds} volta(s)</p>
-        <div class="actions"><button class="primary" id="ok">Aceitar a entrega</button><button id="no">Pedir ajuste…</button><span class="cmd">passo ok</span></div>
+        <div class="actions"><button class="primary" id="ok">Aceitar a entrega</button><button id="no">Pedir ajuste…</button><span class="cmd">no chat: aceito · terminal: passo ok</span></div>
         ${reject("O que ajustar")}<div class="err" id="err"></div>`;
     }
     if (g.kind === "pergunta") {

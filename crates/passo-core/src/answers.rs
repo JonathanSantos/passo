@@ -1,5 +1,7 @@
 //! The dev's decisions, from the CLI (`passo ok 1b 2=texto`) or typed in the agent's chat (`ok 1b`).
 
+use crate::model::GateKind;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Answer {
     /// 1-based question number in the gate; `None` for an unnumbered value (a single question, or a hint).
@@ -89,13 +91,42 @@ pub fn parse_answers(words: &[String]) -> Decision {
 pub enum ChatDecision {
     Approve(Decision),
     Reject(String),
+    /// Not a decision: what to tell the dev instead (an `ok` where accepting needs its own word).
+    Hint(String),
 }
 
-/// Recognizes `ok`, `ok 1b 2a`, `aprovo`, `não: motivo`, `no: motivo` at the start of a chat message.
-/// Anything else is a normal message and stays with the agent.
-pub fn parse_chat(message: &str) -> Option<ChatDecision> {
+/// What a bare `ok` at the delivery gate gets back.
+pub const ACCEPT_HINT: &str = "Para aceitar a entrega, diga `aceito`; para recusar, `não: o que mudar`.";
+
+/// Words that accept a delivery. `ok` alone does not: it is the commonest word there is, and accepting merges.
+const ACCEPT_WORDS: [&str; 6] = [
+    "aceito",
+    "aceita",
+    "aceitar",
+    "ok entrega",
+    "ok, entrega",
+    "pode entregar",
+];
+
+/// Recognizes a decision at the start of a chat message, for the gate that is open: `ok`, `ok 1b 2a`, `aprovo`,
+/// `não: motivo`; at the delivery gate, `aceito`. Anything else is a normal message and stays with the agent.
+pub fn parse_chat(message: &str, gate: GateKind) -> Option<ChatDecision> {
     let text = message.trim();
     let lower = text.to_lowercase();
+    if let Some(reject) = rejection(text, &lower) {
+        return Some(reject);
+    }
+    if gate == GateKind::Aceitar {
+        let bare = lower.trim_end_matches(['.', '!', ' ']);
+        if ACCEPT_WORDS.contains(&bare) {
+            return Some(ChatDecision::Approve(Decision::default()));
+        }
+        return approval(text, &lower).map(|_| ChatDecision::Hint(ACCEPT_HINT.into()));
+    }
+    approval(text, &lower)
+}
+
+fn approval(text: &str, lower: &str) -> Option<ChatDecision> {
     for word in ["ok", "aprovo", "aprovado", "pode seguir", "lgtm"] {
         if let Some(rest) = lower.strip_prefix(word)
             && (rest.is_empty() || rest.starts_with([' ', ',', '.', '!']))
@@ -110,6 +141,10 @@ pub fn parse_chat(message: &str) -> Option<ChatDecision> {
             return Some(ChatDecision::Approve(decision));
         }
     }
+    None
+}
+
+fn rejection(text: &str, lower: &str) -> Option<ChatDecision> {
     for word in ["não:", "nao:", "no:", "recuso:"] {
         if lower.starts_with(word) {
             let reason = text[word.len()..].trim();
@@ -124,6 +159,7 @@ pub fn parse_chat(message: &str) -> Option<ChatDecision> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::GateKind;
 
     fn words(s: &str) -> Vec<String> {
         s.split(' ').map(str::to_string).collect()
@@ -163,14 +199,51 @@ mod tests {
 
     #[test]
     fn chat_ok_variants() {
-        assert_eq!(parse_chat("ok"), Some(ChatDecision::Approve(Decision::default())));
-        assert!(matches!(parse_chat("OK 1b 2a"), Some(ChatDecision::Approve(d)) if d.answers.len() == 2));
         assert_eq!(
-            parse_chat("não: falta o filtro"),
+            parse_chat("ok", GateKind::Aprovar),
+            Some(ChatDecision::Approve(Decision::default()))
+        );
+        assert!(
+            matches!(parse_chat("OK 1b 2a", GateKind::Aprovar), Some(ChatDecision::Approve(d)) if d.answers.len() == 2)
+        );
+        assert_eq!(
+            parse_chat("não: falta o filtro", GateKind::Aprovar),
             Some(ChatDecision::Reject("falta o filtro".into()))
         );
-        assert_eq!(parse_chat("ok, mas antes troque o nome"), None);
-        assert_eq!(parse_chat("okay vamos ver"), None);
-        assert_eq!(parse_chat("como assim?"), None);
+        assert_eq!(parse_chat("ok, mas antes troque o nome", GateKind::Aprovar), None);
+        assert_eq!(parse_chat("okay vamos ver", GateKind::Aprovar), None);
+        assert_eq!(parse_chat("como assim?", GateKind::Aprovar), None);
+    }
+
+    #[test]
+    fn accepting_a_delivery_needs_its_own_word() {
+        let accept = Some(ChatDecision::Approve(Decision::default()));
+        for word in [
+            "aceito",
+            "Aceito!",
+            "aceita",
+            "ok entrega",
+            "ok, entrega",
+            "pode entregar",
+        ] {
+            assert_eq!(parse_chat(word, GateKind::Aceitar), accept, "{word}");
+        }
+        assert_eq!(
+            parse_chat("ok", GateKind::Aceitar),
+            Some(ChatDecision::Hint(ACCEPT_HINT.into()))
+        );
+        assert_eq!(
+            parse_chat("lgtm", GateKind::Aceitar),
+            Some(ChatDecision::Hint(ACCEPT_HINT.into()))
+        );
+        assert_eq!(
+            parse_chat("não: falta o filtro", GateKind::Aceitar),
+            Some(ChatDecision::Reject("falta o filtro".into()))
+        );
+        assert_eq!(
+            parse_chat("aceito", GateKind::Aprovar),
+            None,
+            "accepting words only mean something at delivery"
+        );
     }
 }

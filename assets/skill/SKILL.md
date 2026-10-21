@@ -29,7 +29,7 @@ Na dúvida entre dois tamanhos, escolha o maior.
 
 ## Vez do dev
 
-Quando a saída disser "vez do dev", **pare**. Mostre ao dev o que o Passo mostrou (o plano, as perguntas, a entrega) e espere. O dev responde aqui no chat ("ok", "ok 1b", "não: o que mudar") ou no terminal. Nunca responda por ele.
+Quando a saída disser "vez do dev", **pare**. Mostre ao dev o que o Passo mostrou (o plano, as perguntas, a entrega) e espere. O dev responde aqui no chat ("ok", "ok 1b", "não: o que mudar"; para aceitar a entrega, "aceito") ou no terminal. Nunca responda por ele.
 
 Depois que o dev responder, rode `{{bin}} next`.
 

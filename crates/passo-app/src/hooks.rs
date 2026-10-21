@@ -77,10 +77,10 @@ fn decide(
             let (Some(run), Some(prompt)) = (&run, &input.prompt) else {
                 return Ok(HookReply::Allow);
             };
-            if run.turn() != Turn::Dev {
+            let Some(gate) = run.gate.as_ref().filter(|_| run.turn() == Turn::Dev) else {
                 return Ok(HookReply::Allow);
-            }
-            let Some(decision) = parse_chat(prompt) else {
+            };
+            let Some(decision) = parse_chat(prompt, gate.kind) else {
                 return Ok(HookReply::Allow);
             };
             let action = match decision {
@@ -94,6 +94,9 @@ fn decide(
                         .collect(),
                 ),
                 ChatDecision::Reject(reason) => DevAction::Reject(reason),
+                ChatDecision::Hint(hint) => {
+                    return Ok(HookReply::Context(format!("Passo: {hint} Repasse isso ao dev.")));
+                }
             };
             Ok(HookReply::Context(match app.decide(action, Source::Chat) {
                 Ok(next) => format!(

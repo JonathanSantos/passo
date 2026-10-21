@@ -390,7 +390,7 @@ pub fn gate(view: &View) -> String {
                 list(&mut out, "Notas", &run.notes);
             }
             out.push_str(
-                "\nResponda:\n  ok                 aceita a entrega\n  não: o que mudar   vira um passo de ajuste\n",
+                "\nResponda:\n  aceito             aceita a entrega (no chat, um ok solto não basta)\n  não: o que mudar   vira um passo de ajuste\n",
             );
         }
         GateKind::Pergunta => {

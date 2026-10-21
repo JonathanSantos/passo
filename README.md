@@ -49,6 +49,7 @@ ok                  aprova; perguntas sem resposta ficam com a recomendada
 ok 1b               opção B na pergunta 1
 ok 2=suas palavras  responde com as suas palavras
 não: o que mudar    recusa; o pedido volta para o refinamento
+aceito              aceita a entrega (no chat, um ok solto não basta: aceitar junta o branch)
 ```
 
 Responder no chat funciona porque o hook de prompt só dispara com o que **você** digita. O agente, por sua vez, não consegue rodar `passo ok`: a trava nega.
