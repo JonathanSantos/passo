@@ -1,5 +1,7 @@
 # Spec: Passo para modelos baratos
 
+> **Estado: executada em 2026-10-21**, nos commits `spec-01` a `spec-11` da main. Não rode de novo; o texto fica como registro das decisões.
+
 Esta spec reúne os ajustes que fazem o Passo render mais com modelos baratos, e uma mudança de formato: configuração em YAML e tudo o que é instrução em Markdown. Ela foi escrita para ser executada por um agente, item a item, na ordem em que está.
 
 ## Como executar esta spec

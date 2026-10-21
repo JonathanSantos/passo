@@ -182,7 +182,7 @@ O Passo junta o que mais rendia nos dois harnesses anteriores: o fluxo conduzido
 ## Estado
 
 - **Testado de ponta a ponta**: o fluxo inteiro, nos quatro tamanhos, com git de verdade (branch, commit por passo, merge, `stop`), a validação das entregas, a auditoria, as métricas, o painel e a simulação com Haiku e Sonnet descrita acima.
-- **Ainda não testado ao vivo**: os hooks numa sessão real do Claude Code (a trava, o Stop e a aprovação pelo chat) e o formato de hooks do Copilot no VS Code. Esses caminhos estão cobertos por testes com payloads sintéticos; a simulação usou subagentes, que não passam pelos hooks. O formato do Copilot é o ponto mais incerto, e por isso fica isolado no adapter.
+- **Ainda não testado ao vivo**: os hooks numa sessão real do Claude Code (a trava, o Stop e a aprovação pelo chat) e o formato de hooks do Copilot no VS Code. Esses caminhos estão cobertos por testes com payloads sintéticos; a simulação usou subagentes, que não passam pelos hooks. O formato do Copilot é o ponto mais incerto, e por isso fica isolado no adapter. Também não rodaram ao vivo: o aviso do orçamento de ações como `additionalContext` num `PreToolUse` permitido (o canal segue a referência atual de hooks do Claude Code), a recusa dos comandos do dev dentro de um subagente real (testada com o binário e um ambiente sintético) e o próprio `examples/simulacao/rodar.sh`, que gasta tokens da conta.
 
 ## Documentos
 
