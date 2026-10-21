@@ -1,0 +1,36 @@
+# Passo · configuração do projeto
+# Camadas: padrões do Passo < ~/.passo/passo.toml < cada item de `extends` < este arquivo.
+# Tabelas se juntam chave a chave; listas e valores substituem.
+
+# extends = ["preset:rust", "../time/passo.toml"]
+
+# Tamanho quando o agente não diz: pp, p, m ou g.
+default_size = "m"
+
+[checks]
+# Depois de cada passo (rápido: typecheck, lint).
+step = []
+# Na verificação (a suíte completa).
+final = []
+timeout_secs = 600
+
+[git]
+# branch: um branch por run, um commit por passo. none: trabalha no lugar, sem commits.
+mode = "branch"
+# merge: aceitar a entrega junta o branch. keep: deixa o branch para um pull request.
+delivery = "merge"
+
+[limits]
+# Tentativas por passo antes de chamar o dev.
+attempts = 3
+
+# Cada tamanho decide quem faz cada etapa ("agente" ou "auto") e quanto rigor aplicar.
+# A ordem das etapas é fixa e aceitar a entrega é obrigatório em qualquer tamanho.
+# [sizes.p]
+# verificar = "auto"     # só as checagens, sem revisor
+# approve_plan = false   # perguntas em aberto ainda chegam ao dev
+
+# Modelos por nível, por plataforma. Os agentes pedem um nível (leve ou forte).
+# [models]
+# leve  = { claude = "haiku",  copilot = "Claude Haiku 5.5" }
+# forte = { claude = "sonnet", copilot = "Claude Sonnet 5.5" }
