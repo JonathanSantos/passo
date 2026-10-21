@@ -95,11 +95,13 @@ pub fn tool(raw: &Value, cwd: Option<&Path>, name_keys: &[&str], input_keys: &[&
         .map(|p| p.strip_prefix("file://").map(str::to_string).unwrap_or(p))
         .map(|p| absolute(&base, &p))
         .collect();
+    let cwd = cwd.map(|c| std::fs::canonicalize(c).unwrap_or_else(|_| c.to_path_buf()));
     Some(ToolUse {
         name,
         kind,
         paths,
         command,
+        cwd,
     })
 }
 

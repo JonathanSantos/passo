@@ -304,13 +304,26 @@ impl Config {
                 "`{field}` não pode ter {name}: o comando de teste é uma chamada simples, sem shell"
             ));
         }
-        let first = command.split_whitespace().next().unwrap_or("");
-        let program = first.rsplit('/').next().unwrap_or(first);
+        // The same lexer the lock uses. The program is read first (the clearest reason), then the shape: one
+        // command, no redirect, nothing it cannot read, no variable.
+        let script = crate::shell::lex(command);
+        let program = script.commands.first().and_then(|c| c.program()).unwrap_or("");
         let runners = self.test_runners();
         if !runners.iter().any(|r| r == program) {
             return Some(format!(
                 "`{field}` começa com `{program}`, que não é um executor de testes (permitidos: {}; ou acrescente em tests.runners)",
                 runners.join(", ")
+            ));
+        }
+        let simple = script.readable
+            && script.commands.len() == 1
+            && script
+                .commands
+                .iter()
+                .all(|c| c.redirects.is_empty() && c.words.iter().all(|w| !w.dynamic));
+        if !simple {
+            return Some(format!(
+                "`{field}` não é uma chamada simples (variável, redirecionamento ou mais de um comando): o comando de teste é uma chamada simples, sem shell"
             ));
         }
         None

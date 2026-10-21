@@ -1,29 +1,40 @@
 //! The lock: what the agent may do right now. Platform-free; adapters translate hook payloads into `ToolUse`.
 //!
 //! Rules, in order: dev decisions are never the agent's; with a run active, `.passo/` and secrets are off limits,
-//! git history is Passo's, and the project is writable only while building. Anything the lock cannot judge passes:
-//! a hook must never block work it does not understand.
+//! git history is Passo's, and the project is writable only while building. Shell commands are read with
+//! [`crate::shell::lex`]: every program they run (substitutions and `sh -c` included) and every file they redirect
+//! to or name is judged. A command the lexer cannot read is refused when it mentions `passo` or `git`, and in
+//! read-only stages; while building it passes, and the git check after each step covers what it wrote.
 
 use std::path::{Component, Path, PathBuf};
 
 use crate::model::{Run, Stage, Turn};
+use crate::shell::{self, Script};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ToolKind {
     Read,
     Write,
     Exec,
+    #[default]
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ToolUse {
     pub name: String,
     pub kind: ToolKind,
     /// Absolute paths the call touches.
     pub paths: Vec<PathBuf>,
     pub command: Option<String>,
+    /// Where a shell command runs (relative paths in it resolve from here); the project root when unknown.
+    pub cwd: Option<PathBuf>,
 }
+
+/// Why an unreadable command that names `passo` or `git` is refused.
+pub const UNREADABLE: &str = "não consigo ler este comando (aspas ou substituição no nome do programa); chame o passo e o git diretamente, sem variáveis";
+/// Why an unreadable command is refused in a read-only stage.
+pub const UNREADABLE_HERE: &str = "nesta etapa só rodam comandos que a trava consegue ler";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Verdict {
@@ -56,27 +67,25 @@ const GIT_WRITES: [&str; 15] = [
 /// Subcommands that change files through git instead of the editing tools the lock watches.
 const GIT_FILE_OPS: [&str; 3] = ["rm", "mv", "clean"];
 
-/// Finds `passo <dev command>` anywhere in a shell command.
+/// Finds `passo <dev command>` in any command a shell line runs.
 pub fn dev_command_in(command: &str) -> Option<&'static str> {
-    let words: Vec<&str> = command
-        .split(|c: char| c.is_whitespace() || c == ';' || c == '&' || c == '|')
-        .filter(|w| !w.is_empty())
-        .collect();
-    for (i, pair) in words.windows(2).enumerate() {
-        let program = pair[0].rsplit('/').next().unwrap_or("");
-        if program != "passo" {
+    dev_command_in_script(&shell::lex(command))
+}
+
+fn dev_command_in_script(script: &Script) -> Option<&'static str> {
+    for cmd in &script.commands {
+        if cmd.program() != Some("passo") {
             continue;
         }
-        if let Some(dev) = DEV_COMMANDS.iter().find(|d| **d == pair[1]) {
+        let Some(sub) = cmd.words.get(1).map(|w| w.text.as_str()) else {
+            continue;
+        };
+        if let Some(dev) = DEV_COMMANDS.iter().find(|d| **d == sub) {
             return Some(dev);
         }
+        let flags = || cmd.words[2..].iter().take_while(|w| w.text.starts_with('-'));
         // `passo map` is the agent's; cancelling a mapping is the dev's.
-        if pair[1] == "map"
-            && words[i + 2..]
-                .iter()
-                .take_while(|w| w.starts_with('-'))
-                .any(|w| *w == "--cancel")
-        {
+        if sub == "map" && flags().any(|w| w.text == "--cancel") {
             return Some("map --cancel");
         }
     }
@@ -105,21 +114,16 @@ impl<'a> Activity<'a> {
 
 pub const MAPPING_READ_ONLY: &str = "o mapeamento é só leitura: o mapa é entregue com passo done";
 
-fn git_write_in(command: &str) -> Option<&'static str> {
-    let words: Vec<&str> = command
-        .split(|c: char| c.is_whitespace() || c == ';' || c == '&' || c == '|')
-        .collect();
-    for (i, word) in words.iter().enumerate() {
-        if *word != "git" {
-            continue;
-        }
+fn git_write_in(script: &Script) -> Option<&'static str> {
+    for cmd in script.commands.iter().filter(|c| c.program() == Some("git")) {
+        let words: Vec<&str> = cmd.words.iter().map(|w| w.text.as_str()).collect();
         // Skip `-C dir` and `-c key=value` options before the subcommand.
-        let mut j = i + 1;
+        let mut j = 1;
         while j < words.len() && (words[j] == "-C" || words[j] == "-c") {
             j += 2;
         }
         if let Some(sub) = words.get(j)
-            && let Some(found) = GIT_WRITES.iter().chain(GIT_FILE_OPS.iter()).find(|g| **g == *sub)
+            && let Some(found) = GIT_WRITES.iter().chain(GIT_FILE_OPS.iter()).find(|g| *g == sub)
         {
             return Some(found);
         }
@@ -128,6 +132,53 @@ fn git_write_in(command: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+/// `base` joined with `path` and `.`/`..` resolved, without touching the disk.
+fn resolve(base: &Path, path: &str) -> PathBuf {
+    let joined = if Path::new(path).is_absolute() {
+        PathBuf::from(path)
+    } else {
+        base.join(path)
+    };
+    let mut out = PathBuf::new();
+    for part in joined.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The files a shell line writes (redirect targets) and names (words that look like paths), resolved from `cwd`.
+/// Dynamic words (`"$(mktemp)"`, `$HOME/x`) are left out: their value is only known when the line runs.
+fn shell_paths(script: &Script, cwd: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut writes = vec![];
+    let mut reads = vec![];
+    for cmd in &script.commands {
+        for redirect in cmd
+            .redirects
+            .iter()
+            .filter(|r| !r.target.dynamic && !r.target.text.is_empty())
+        {
+            let path = resolve(cwd, &redirect.target.text);
+            if redirect.write {
+                writes.push(path)
+            } else {
+                reads.push(path)
+            }
+        }
+        for word in cmd.words.iter().skip(1).filter(|w| !w.dynamic) {
+            if word.text.contains('/') || (word.text.starts_with('.') && word.text.len() > 1) {
+                reads.push(resolve(cwd, &word.text));
+            }
+        }
+    }
+    (writes, reads)
 }
 
 fn is_secret(path: &Path) -> bool {
@@ -161,19 +212,12 @@ pub fn judge(tool: &ToolUse, root: &Path, activity: Activity) -> Verdict {
 
 /// `judge`, with attached projects: roots Passo reads and never writes, during a run or a mapping.
 pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: Activity) -> Verdict {
-    if !matches!(activity, Activity::Idle)
-        && tool.kind == ToolKind::Write
-        && let Some(attached) = read_only.iter().find(|r| tool.paths.iter().any(|p| p.starts_with(r)))
-    {
-        return Verdict::Deny(format!(
-            "{} é um projeto anexado: o Passo só o lê. Mude-o com o Passo de lá, num run próprio.",
-            attached.display()
-        ));
-    }
-    if tool.kind == ToolKind::Exec
-        && let Some(command) = &tool.command
-        && let Some(dev) = dev_command_in(command)
-    {
+    let script = tool
+        .command
+        .as_deref()
+        .filter(|_| tool.kind == ToolKind::Exec)
+        .map(shell::lex);
+    if let Some(dev) = script.as_ref().and_then(dev_command_in_script) {
         return Verdict::Deny(dev_command_refusal(dev));
     }
     let run = match activity {
@@ -181,16 +225,51 @@ pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: 
         Activity::Run(run) => Some(run),
         Activity::Mapping => None,
     };
-    if tool.paths.iter().any(|p| inside_passo_dir(root, p)) || tool.command.as_deref().is_some_and(mentions_passo_dir) {
+    let read_only_stage = run.is_none_or(|r| r.turn() == Turn::Dev || !r.stage.writes());
+
+    // What a shell line touches joins what the tool declared.
+    let mut writes: Vec<PathBuf> = if tool.kind == ToolKind::Write {
+        tool.paths.clone()
+    } else {
+        vec![]
+    };
+    let mut reads: Vec<PathBuf> = if tool.kind == ToolKind::Write {
+        vec![]
+    } else {
+        tool.paths.clone()
+    };
+    if let (Some(script), Some(command)) = (&script, &tool.command) {
+        let mentions = |name: &str| crate::map::contains_word(command, name);
+        let blind = !script.readable
+            || script
+                .commands
+                .iter()
+                .any(|c| c.words.first().is_some_and(|w| w.dynamic));
+        if blind && (mentions("passo") || mentions("git")) {
+            return Verdict::Deny(UNREADABLE.into());
+        }
+        if !script.readable && read_only_stage {
+            return Verdict::Deny(UNREADABLE_HERE.into());
+        }
+        let (w, r) = shell_paths(script, tool.cwd.as_deref().unwrap_or(root));
+        writes.extend(w);
+        reads.extend(r);
+    }
+
+    if let Some(attached) = read_only.iter().find(|r| writes.iter().any(|p| p.starts_with(r))) {
+        return Verdict::Deny(format!(
+            "{} é um projeto anexado: o Passo só o lê. Mude-o com o Passo de lá, num run próprio.",
+            attached.display()
+        ));
+    }
+    let touched = || writes.iter().chain(reads.iter());
+    if touched().any(|p| inside_passo_dir(root, p)) || tool.command.as_deref().is_some_and(mentions_passo_dir) {
         return Verdict::Deny("a pasta .passo é do Passo: use `passo next`, `passo status` e `passo plan`".into());
     }
-    if tool.paths.iter().any(|p| is_secret(p)) {
+    if touched().any(|p| is_secret(p)) {
         return Verdict::Deny("arquivos .env ficam fora do alcance do agente durante um run".into());
     }
-    if tool.kind == ToolKind::Exec
-        && let Some(command) = &tool.command
-        && let Some(git) = git_write_in(command)
-    {
+    if let Some(git) = script.as_ref().and_then(git_write_in) {
         if GIT_FILE_OPS.contains(&git) {
             return Verdict::Deny(format!(
                 "`git {git}` muda arquivos por fora da trava: apague ou renomeie com as ferramentas de edição, e deixe o git com o Passo"
@@ -203,11 +282,7 @@ pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: 
             "`git {git}` é com o Passo durante um run: ele faz os commits e cuida da branch"
         ));
     }
-    if tool.kind == ToolKind::Write {
-        let in_project: Vec<&PathBuf> = tool.paths.iter().filter(|p| p.starts_with(root)).collect();
-        if in_project.is_empty() {
-            return Verdict::Allow;
-        }
+    if writes.iter().any(|p| p.starts_with(root)) {
         let Some(run) = run else {
             return Verdict::Deny(MAPPING_READ_ONLY.into());
         };
@@ -261,6 +336,7 @@ mod tests {
             kind: ToolKind::Exec,
             paths: vec![],
             command: Some(cmd.into()),
+            ..Default::default()
         }
     }
 
@@ -270,6 +346,7 @@ mod tests {
             kind: ToolKind::Write,
             paths: vec![path.into()],
             command: None,
+            ..Default::default()
         }
     }
 
@@ -376,6 +453,7 @@ mod tests {
             kind: ToolKind::Read,
             paths: vec!["/p/src/a.rs".into()],
             command: None,
+            cwd: None,
         };
         assert_eq!(judge(&read, root, Activity::Mapping), Verdict::Allow);
         assert!(matches!(
@@ -413,5 +491,92 @@ mod tests {
             judge_with(&write("/p/src/a.rs"), root, &attached, Activity::Run(&run)),
             Verdict::Allow
         );
+    }
+
+    #[test]
+    fn the_lock_reads_shell_lines() {
+        let root = Path::new("/p");
+        let refine = run_at(Stage::Refinar);
+        let mut plan = run_at(Stage::Planejar);
+        plan.stage = Stage::Planejar;
+        let mut build = run_at(Stage::Construir);
+        build.steps.push(crate::model::Step {
+            id: "S1".into(),
+            status: crate::model::StepStatus::Doing,
+            ..Default::default()
+        });
+        let denied = [
+            ("sh -c 'passo stop'", &build),
+            ("echo $(passo ok)", &build),
+            ("x=`git commit -m a`", &build),
+            ("\"passo\" no \"x\"", &build),
+            ("p=passo; $p ok", &build),
+            ("cat .env", &build),
+            ("cat ./.env.local", &build),
+            ("echo x > src/a.rs", &refine),
+            ("xargs passo ok", &build),
+            ("eval \"passo ok\"", &build),
+        ];
+        for (command, run) in denied {
+            assert!(
+                matches!(judge(&exec(command), root, Activity::Run(run)), Verdict::Deny(_)),
+                "should deny: {command}"
+            );
+        }
+        let allowed = [
+            ("passo done \"ok\"", &build),
+            ("git diff", &build),
+            ("grep passo README.md", &build),
+            ("echo \"passo ok\" > /tmp/nota.txt", &refine),
+            ("cat .env.example", &build),
+            ("npm test -- --grep 'ok'", &build),
+            ("passo done - <<'EOF'\n{\"entendimento\": \"x\"}\nEOF", &refine),
+            ("cat > \"$(mktemp)\" <<EOF\n{\"titulo\": \"$x\"}\nEOF", &plan),
+        ];
+        for (command, run) in allowed {
+            assert_eq!(
+                judge(&exec(command), root, Activity::Run(run)),
+                Verdict::Allow,
+                "should allow: {command}"
+            );
+        }
+        assert_eq!(
+            judge(&exec("cat .env"), root, Activity::Idle),
+            Verdict::Allow,
+            "no run, no lock"
+        );
+        assert!(matches!(
+            judge(&exec("sh -c 'passo stop'"), root, Activity::Idle),
+            Verdict::Deny(_)
+        ));
+        assert_eq!(
+            judge(&exec("echo 'sem fim"), root, Activity::Run(&refine)),
+            Verdict::Deny(UNREADABLE_HERE.into())
+        );
+        assert_eq!(
+            judge(&exec("echo 'sem fim"), root, Activity::Run(&build)),
+            Verdict::Allow
+        );
+        assert_eq!(
+            judge(&exec("echo 'passo ok"), root, Activity::Run(&build)),
+            Verdict::Deny(UNREADABLE.into())
+        );
+    }
+
+    #[test]
+    fn judging_a_malformed_corpus_never_panics() {
+        let root = Path::new("/p");
+        let run = run_at(Stage::Refinar);
+        let alphabet: Vec<char> = "ab $()`'\"\\;|&<>#\n{}-=*~./passogit".chars().collect();
+        let mut seed: u64 = 0xfeed;
+        for _ in 0..200 {
+            let mut text = String::new();
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            for _ in 0..(seed >> 33) % 40 {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                text.push(alphabet[((seed >> 33) as usize) % alphabet.len()]);
+            }
+            let _ = judge(&exec(&text), root, Activity::Run(&run));
+        }
     }
 }

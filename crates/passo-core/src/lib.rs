@@ -13,6 +13,7 @@ pub mod flow;
 pub mod lock;
 pub mod map;
 pub mod model;
+pub mod shell;
 pub mod spec;
 
 pub use config::{Config, Mode, Profile};
