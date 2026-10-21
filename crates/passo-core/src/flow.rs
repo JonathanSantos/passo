@@ -315,6 +315,14 @@ impl<'a> Engine<'a> {
             .enumerate()
             .filter(|(_, s)| !s.test_command.is_empty())
         {
+            if let Some(reason) = self
+                .config
+                .refuse_test_command(&format!("passos[{i}].rodar"), &step.test_command)
+            {
+                refused.push(reason);
+                continue;
+            }
+            // The lock still has a say, in depth.
             let tool = ToolUse {
                 name: "rodar".into(),
                 kind: ToolKind::Exec,

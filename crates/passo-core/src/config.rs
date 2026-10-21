@@ -248,6 +248,8 @@ impl Default for Limits {
 pub struct Tests {
     /// Globs that count as test files.
     pub patterns: Vec<String>,
+    /// Programs a step's test command (`rodar`) may start with, besides the ones the checks use.
+    pub runners: Vec<String>,
 }
 
 impl Default for Tests {
@@ -256,7 +258,62 @@ impl Default for Tests {
             patterns: ["**/*test*", "**/*spec*", "**/tests/**", "**/test/**", "**/__tests__/**"]
                 .map(String::from)
                 .to_vec(),
+            runners: [
+                "cargo", "npm", "pnpm", "yarn", "bun", "node", "pytest", "python", "go", "make", "just", "mvn",
+                "gradle", "dotnet", "mix", "bundle", "rspec",
+            ]
+            .map(String::from)
+            .to_vec(),
         }
+    }
+}
+
+/// What a step's test command may never contain: it is a plain call to a test runner, not a shell line.
+const SHELL_TOKENS: [(&str, &str); 10] = [
+    ("$(", "`$(`"),
+    ("`", "crase"),
+    ("&&", "`&&`"),
+    ("||", "`||`"),
+    (";", "`;`"),
+    ("|", "`|`"),
+    (">", "`>`"),
+    ("<", "`<`"),
+    ("\n", "quebra de linha"),
+    ("\\", "`\\`"),
+];
+
+impl Config {
+    /// Programs a test command may start with: `tests.runners` and the first word of every configured check.
+    pub fn test_runners(&self) -> Vec<String> {
+        let mut runners = self.tests.runners.clone();
+        for check in self.checks.step.iter().chain(&self.checks.final_) {
+            if let Some(program) = check.split_whitespace().next() {
+                let program = program.rsplit('/').next().unwrap_or(program).to_string();
+                if !runners.contains(&program) {
+                    runners.push(program);
+                }
+            }
+        }
+        runners
+    }
+
+    /// Why a step's test command is not a plain call to a test runner, if it is not. `field` names it in the error.
+    pub fn refuse_test_command(&self, field: &str, command: &str) -> Option<String> {
+        if let Some((_, name)) = SHELL_TOKENS.iter().find(|(token, _)| command.contains(token)) {
+            return Some(format!(
+                "`{field}` não pode ter {name}: o comando de teste é uma chamada simples, sem shell"
+            ));
+        }
+        let first = command.split_whitespace().next().unwrap_or("");
+        let program = first.rsplit('/').next().unwrap_or(first);
+        let runners = self.test_runners();
+        if !runners.iter().any(|r| r == program) {
+            return Some(format!(
+                "`{field}` começa com `{program}`, que não é um executor de testes (permitidos: {}; ou acrescente em tests.runners)",
+                runners.join(", ")
+            ));
+        }
+        None
     }
 }
 

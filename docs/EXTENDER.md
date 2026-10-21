@@ -87,6 +87,17 @@ Cada componente novo ganha uma story com os estados vazio, carregando e erro.
 - `mode: replace` substitui as instruções embutidas em vez de acrescentar.
 - `skip`, `enabled` e afins dão erro: etapas não se desligam. Para um tamanho não usar agente numa etapa, use os tamanhos.
 
+## Executores de teste
+
+O `rodar` de um passo (o comando que roda só o teste dele) é uma chamada simples a um executor de testes: sem `$(`, crase, `;`, `&&`, `||`, `|`, `>`, `<`, quebra de linha ou `\`, e começando por um programa permitido. Por padrão: `cargo`, `npm`, `pnpm`, `yarn`, `bun`, `node`, `pytest`, `python`, `go`, `make`, `just`, `mvn`, `gradle`, `dotnet`, `mix`, `bundle` e `rspec`, mais o programa de cada item de `checks.step` e `checks.final`. Para acrescentar:
+
+```yaml
+tests:
+  runners: [cargo, npm, vitest]
+```
+
+A lista substitui a padrão (listas substituem nas camadas), então repita os que quiser manter. A trava também é consultada, e o dev aprova os comandos junto com o plano.
+
 ## Tamanhos (o fast travel)
 
 ```yaml

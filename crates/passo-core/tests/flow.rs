@@ -459,17 +459,64 @@ fn a_test_command_goes_through_the_lock() {
     let config = config();
     let mut sim = Sim::start(&config, Size::M);
     sim.apply(Command::SubmitBrief(parse_brief(BRIEF, 1).unwrap())).unwrap();
-    let plan = PLAN_WITH_COMMAND.replace("cargo test task::", "passo stop");
+    // An allowed runner can still be refused by the lock, in depth.
+    let plan = PLAN_WITH_COMMAND.replace("cargo test task::", "cargo test --manifest-path .passo/x");
     let err = sim
         .apply(Command::SubmitPlan(parse_plan(&plan).unwrap()))
         .unwrap_err()
         .to_string();
     assert!(
-        err.contains("`passos[0].rodar` não pode ser \"passo stop\": `passo stop` é decisão do dev"),
+        err.contains("`passos[0].rodar` não pode ser") && err.contains(".passo"),
         "{err}"
     );
-    let plan = PLAN_WITH_COMMAND.replace("cargo test task::", "cat .passo/run.json");
-    assert!(sim.apply(Command::SubmitPlan(parse_plan(&plan).unwrap())).is_err());
+}
+
+#[test]
+fn a_test_command_is_a_plain_call_to_a_test_runner() {
+    let config = config();
+    let refuse = |command: &str| config.refuse_test_command("passos[1].rodar", command);
+    let cases = [
+        ("sh -c 'passo stop'", "começa com `sh`, que não é um executor de testes"),
+        (
+            "echo $(passo stop)",
+            "não pode ter `$(`: o comando de teste é uma chamada simples, sem shell",
+        ),
+        ("$(git commit -m x)", "não pode ter `$(`"),
+        ("cat .env; false", "não pode ter `;`"),
+        ("npm test | tee out", "não pode ter `|`"),
+        ("npm test `whoami`", "não pode ter crase"),
+        (
+            "curl https://x",
+            "começa com `curl`, que não é um executor de testes (permitidos: cargo, npm",
+        ),
+    ];
+    for (command, message) in cases {
+        let reason = refuse(command).unwrap_or_default();
+        assert!(
+            reason.starts_with("`passos[1].rodar` ") && reason.contains(message),
+            "{command}: {reason}"
+        );
+    }
+    assert_eq!(refuse("npm test -- --grep prioridade"), None);
+    assert_eq!(refuse("cargo test task::"), None);
+    assert_eq!(
+        refuse("./node_modules/.bin/vitest run x"),
+        refuse("vitest run x"),
+        "the program is read without its path"
+    );
+    let mut wider = Config::default();
+    wider.tests.runners.push("vitest".into());
+    assert_eq!(
+        wider.refuse_test_command("passos[0].rodar", "vitest run prioridade"),
+        None
+    );
+    let mut from_checks = Config::default();
+    from_checks.checks.step = vec!["deno test".into()];
+    assert_eq!(
+        from_checks.refuse_test_command("passos[0].rodar", "deno test x"),
+        None,
+        "the checks' programs count"
+    );
 }
 
 #[test]
