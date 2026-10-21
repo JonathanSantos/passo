@@ -1,5 +1,7 @@
 # Spec: correções da revisão da SPEC.md
 
+> **Estado: executada em 2026-10-21**, nos commits `rev-01` a `rev-10` da main. Não rode de novo; o texto fica como registro das decisões.
+
 A execução de `docs/SPEC.md` foi revisada item a item contra os critérios de pronto. Os onze itens estão feitos e as gates passam (fmt, clippy, 82 testes). A revisão achou um problema alto, quatro médios e um punhado de baixos. Esta spec os corrige, na ordem de gravidade.
 
 Regras de execução iguais às de `docs/SPEC.md`: um commit por item, prefixo `rev-NN`, as três gates antes de cada commit, `CLAUDE.md` vale. Rode esta spec **depois** de `docs/SPEC-MAPA.md` terminar: os dois mexem em `service.rs`, `lock.rs` e `spec.rs`.
