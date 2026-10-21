@@ -144,9 +144,11 @@ fn decide(
                         "tool": tool.name,
                         "call": describe(&tool, &root),
                         "step": step.map(|s| s.id.clone()),
+                        "attempt": step.map(|s| s.attempts),
                     }),
                 }];
-                if run.turn() == Turn::Agent {
+                // Only calls the lock let through count against the budget.
+                if run.turn() == Turn::Agent && matches!(verdict, Verdict::Allow) {
                     warning = budget(&app, run, &mut drafts)?;
                 }
                 app.store.log(&run.id).append(&run.id, &drafts, chrono::Utc::now())?;

@@ -1003,3 +1003,51 @@ fn evidence_must_be_a_file_inside_the_project() {
         "{symbol}"
     );
 }
+
+#[test]
+fn the_budget_counts_allowed_calls_per_step_and_attempt() {
+    let p = Project::new("budget-step");
+    let config = std::fs::read_to_string(p.root.join(".passo/passo.yaml")).unwrap();
+    std::fs::write(
+        p.root.join(".passo/passo.yaml"),
+        format!("{config}sizes:\n  m:\n    max_tool_calls: 3\n"),
+    )
+    .unwrap();
+    p.git(&["commit", "-qam", "budget"]);
+    p.app().start("Algo médio", None).unwrap();
+    let brief = p.draft("brief-budget", r#"{"entendimento":"x","escopo":["a"]}"#);
+    p.done(&brief);
+    let plan = p.draft(
+        "plan-budget",
+        r#"{"titulo":"T","criterios":["c"],"passos":[{"titulo":"S","criterios":["C1"]}]}"#,
+    );
+    p.done(&plan);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    let read = || {
+        p.hook(
+            HookEvent::PreToolUse,
+            tool(&p.root, "Read", serde_json::json!({"file_path": "src/lib.txt"})),
+        )
+    };
+    for _ in 0..3 {
+        assert_eq!(read(), None);
+    }
+    let denied = p
+        .hook(
+            HookEvent::PreToolUse,
+            tool(&p.root, "Write", serde_json::json!({"file_path": ".env"})),
+        )
+        .unwrap();
+    assert!(
+        denied.contains("deny") && !denied.contains("ações neste passo"),
+        "{denied}"
+    );
+    let warning = read().unwrap();
+    assert!(
+        warning.contains("já foram 4 ações neste passo"),
+        "the denied call did not count: {warning}"
+    );
+    std::fs::remove_file(p.root.join("src/lib.txt")).unwrap();
+    p.done("quebrei a checagem");
+    assert_eq!(read(), None, "a new attempt starts a new count");
+}
