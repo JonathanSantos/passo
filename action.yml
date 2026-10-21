@@ -1,0 +1,19 @@
+name: Setup Passo
+description: Instala o Passo (harness para agentes de IA) num workflow do GitHub Actions, inclusive no ambiente do Copilot coding agent.
+branding:
+  icon: bar-chart-2
+  color: green
+inputs:
+  version:
+    description: Versão (tag), ou latest
+    default: latest
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PASSO_VERSION: ${{ inputs.version }}
+        PASSO_INSTALL_DIR: ${{ runner.temp }}/passo-bin
+      run: |
+        sh "${{ github.action_path }}/install.sh"
+        echo "$PASSO_INSTALL_DIR" >> "$GITHUB_PATH"
