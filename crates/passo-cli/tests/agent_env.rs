@@ -63,3 +63,26 @@ fn dev_commands_are_refused_in_claude_codes_environment() {
     );
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn a_refusal_with_a_run_active_is_logged() {
+    let root = std::env::temp_dir().join(format!("passo-cli-env-run-{}", std::process::id()));
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(&root).unwrap();
+    assert!(passo(&root, &[], &["init", "--agent", "nenhum"]).status.success());
+    let started = passo(&root, &[], &["start", "Algo pequeno", "--size", "p"]);
+    assert!(started.status.success(), "{}", text(&started));
+    let refused = passo(&root, &[("CLAUDECODE", "1")], &["ok"]);
+    assert_eq!(refused.status.code(), Some(2), "{}", text(&refused));
+    let id = std::fs::read_to_string(root.join(".passo/current")).unwrap();
+    let log = std::fs::read_to_string(root.join(".passo/runs").join(id.trim()).join("events.jsonl")).unwrap();
+    let denial = log
+        .lines()
+        .find(|l| l.contains("\"lock.denied\""))
+        .expect("a lock.denied event");
+    assert!(
+        denial.contains("\"via\":\"cli\"") && denial.contains("decisão do dev"),
+        "{denial}"
+    );
+    std::fs::remove_dir_all(root).ok();
+}
