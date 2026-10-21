@@ -65,6 +65,8 @@ pub struct StepFacts {
     pub note: Option<String>,
     /// Files this step changed that the plan did not list for it (tests excluded).
     pub unplanned: Vec<String>,
+    /// Model tier of the stage's agent: an agent already at the strong tier has nowhere to escalate to.
+    pub agent_tier: String,
 }
 
 #[derive(Debug, Clone)]
@@ -504,7 +506,10 @@ impl<'a> Engine<'a> {
             current.attempts += 1;
             let attempts = current.attempts;
             // Spend the strong model only where the cheap one got stuck, before calling the dev.
-            let escalated = profile.escalate_after > 0 && attempts >= profile.escalate_after && current.tier.is_none();
+            let escalated = profile.escalate_after > 0
+                && attempts >= profile.escalate_after
+                && current.tier.is_none()
+                && facts.agent_tier != strong;
             if escalated {
                 current.tier = Some(strong.to_string());
             }

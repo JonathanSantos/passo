@@ -47,6 +47,7 @@ fn facts(files: &[&str], tests: bool) -> StepFacts {
         measured: true,
         note: None,
         unplanned: vec![],
+        agent_tier: "leve".into(),
     }
 }
 
@@ -642,4 +643,18 @@ fn a_replan_unlinks_done_steps_from_the_new_criteria() {
         "",
         "a fix does not inherit from a legacy step"
     );
+}
+
+#[test]
+fn an_agent_already_strong_does_not_escalate() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    to_build(&mut sim);
+    let mut bad = facts(&["src/task.rs", "tests/t.rs"], true);
+    bad.checks = vec![bad_check("cargo check")];
+    bad.agent_tier = "forte".into();
+    sim.apply(Command::StepDone(bad)).unwrap();
+    assert_eq!(sim.run.current_step().unwrap().tier, None);
+    assert!(!sim.events.iter().any(|e| e.kind == "step.escalated"));
+    assert!(!sim.run.feedback.as_deref().unwrap().contains("nível forte"));
 }

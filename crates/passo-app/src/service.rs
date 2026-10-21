@@ -780,6 +780,11 @@ impl App {
 
     fn measure(&self, run: &Run, input: &DoneInput) -> Result<StepFacts> {
         let mut facts = StepFacts {
+            agent_tier: self
+                .catalog
+                .agent_for(Stage::Construir)
+                .map(|a| a.model.clone())
+                .unwrap_or_default(),
             summary: input.text.trim().to_string(),
             empty_ok: input.empty_ok,
             note: input.note.clone(),

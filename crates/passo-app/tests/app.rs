@@ -1051,3 +1051,16 @@ fn the_budget_counts_allowed_calls_per_step_and_attempt() {
     p.done("quebrei a checagem");
     assert_eq!(read(), None, "a new attempt starts a new count");
 }
+
+#[test]
+fn copilot_gets_the_strong_twin_too() {
+    let root = std::env::temp_dir().join(format!("passo-app-copilot-twin-{}", std::process::id()));
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(&root).unwrap();
+    setup::init(&root, &["copilot".into()], "passo").unwrap();
+    let twin = std::fs::read_to_string(root.join(".github/agents/passo-construtor-forte.agent.md")).unwrap();
+    assert!(twin.contains("model: \"Claude Sonnet 5.5\""), "{twin}");
+    let cheap = std::fs::read_to_string(root.join(".github/agents/passo-construtor.agent.md")).unwrap();
+    assert!(cheap.contains("model: \"Claude Haiku 5.5\""), "{cheap}");
+    std::fs::remove_dir_all(root).ok();
+}

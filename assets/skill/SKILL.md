@@ -23,7 +23,7 @@ Na dúvida entre dois tamanhos, escolha o maior.
 ## O ciclo
 
 1. `{{bin}} next` mostra a tarefa da vez, o agente indicado e como entregar.
-2. Faça a tarefa. Se ela indica um subagente (`passo-refinador`, `passo-planejador`, `passo-construtor`, `passo-revisor`, ou a versão `-forte` de um deles, quando o Passo pede o nível forte depois de uma falha) e você pode delegar, delegue exatamente o que ela indica e passe a saída inteira do `{{bin}} next` para ele. Se não pode delegar, faça você mesmo, seguindo o papel descrito na tarefa.
+2. Faça a tarefa. Se ela indica um subagente (`passo-refinador`, `passo-planejador`, `passo-construtor`, `passo-revisor`, ou um gêmeo de nível forte como `passo-construtor-forte` e `passo-refinador-forte`, quando o Passo pede o nível forte depois de uma falha) e você pode delegar, delegue exatamente o que ela indica e passe a saída inteira do `{{bin}} next` para ele. Se não pode delegar, faça você mesmo, seguindo o papel descrito na tarefa.
 3. Entregue com `{{bin}} done …`. A saída já traz o próximo passo.
 4. Repita até a saída dizer que é a **vez do dev** ou que o run terminou.
 
