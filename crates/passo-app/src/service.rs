@@ -628,7 +628,14 @@ impl App {
                 .collect();
             facts.measured = true;
         }
-        let mut commands = self.config.checks.step.clone();
+        // The step's own test runs first: the dev approved the command with the plan.
+        let mut commands: Vec<String> = run
+            .current_step()
+            .map(|s| s.test_command.clone())
+            .filter(|c| !c.is_empty())
+            .into_iter()
+            .collect();
+        commands.extend(self.config.checks.step.iter().cloned());
         if let Some(def) = self.catalog.stage(Stage::Construir) {
             commands.extend(def.checks.iter().cloned());
         }

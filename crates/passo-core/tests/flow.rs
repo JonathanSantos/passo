@@ -431,3 +431,71 @@ fn the_automatic_plan_meets_every_criterion() {
     let ids: Vec<&str> = sim.run.criteria.iter().map(|c| c.id.as_str()).collect();
     assert_eq!(sim.run.steps[0].criteria, ids);
 }
+
+const PLAN_WITH_COMMAND: &str = r#"{"titulo":"Prioridade","criterios":["tem prioridade"],
+  "passos":[{"titulo":"Modelo","teste":"task tem prioridade","criterios":["C1"],"rodar":"cargo test task::"}]}"#;
+
+#[test]
+fn the_test_command_reaches_the_step_and_review_fixes_inherit_it() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    sim.apply(Command::SubmitBrief(parse_brief(BRIEF, 1).unwrap())).unwrap();
+    sim.apply(Command::SubmitPlan(parse_plan(PLAN_WITH_COMMAND).unwrap()))
+        .unwrap();
+    sim.apply(Command::Approve(Decision::default())).unwrap();
+    assert_eq!(sim.run.steps[0].test_command, "cargo test task::");
+    sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
+        .unwrap();
+    let failing = r#"{"criterios":[{"id":"C1","ok":false,"evidencia":"falta o padrão"}]}"#;
+    sim.apply(Command::SubmitReview(parse_review(failing, &["C1".into()]).unwrap()))
+        .unwrap();
+    assert_eq!(sim.run.current_step().unwrap().test_command, "cargo test task::");
+}
+
+#[test]
+fn a_test_command_goes_through_the_lock() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    sim.apply(Command::SubmitBrief(parse_brief(BRIEF, 1).unwrap())).unwrap();
+    let plan = PLAN_WITH_COMMAND.replace("cargo test task::", "passo stop");
+    let err = sim
+        .apply(Command::SubmitPlan(parse_plan(&plan).unwrap()))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("`passos[0].rodar` não pode ser \"passo stop\": `passo stop` é decisão do dev"),
+        "{err}"
+    );
+    let plan = PLAN_WITH_COMMAND.replace("cargo test task::", "cat .passo/run.json");
+    assert!(sim.apply(Command::SubmitPlan(parse_plan(&plan).unwrap())).is_err());
+}
+
+#[test]
+fn a_test_command_always_asks_for_approval() {
+    let mut config = config();
+    let mut p = Profile::defaults(Size::P);
+    p.approve_plan = false;
+    config.sizes.insert(Size::P, p);
+    let brief = r#"{"entendimento":"x","escopo":["a"]}"#;
+    let mut sim = Sim::start(&config, Size::P);
+    sim.apply(Command::SubmitBrief(parse_brief(brief, 1).unwrap())).unwrap();
+    sim.apply(Command::SubmitPlan(parse_plan(PLAN).unwrap())).unwrap();
+    assert_eq!(
+        sim.run.stage,
+        Stage::Construir,
+        "no command, no questions: straight to build"
+    );
+    let mut sim = Sim::start(&config, Size::P);
+    sim.apply(Command::SubmitBrief(parse_brief(brief, 1).unwrap())).unwrap();
+    sim.apply(Command::SubmitPlan(parse_plan(PLAN_WITH_COMMAND).unwrap()))
+        .unwrap();
+    assert_eq!(sim.gate(), GateKind::Aprovar);
+    assert!(
+        sim.run
+            .gate
+            .as_ref()
+            .unwrap()
+            .detail
+            .contains("autoriza o Passo a rodar")
+    );
+}

@@ -108,9 +108,10 @@
       return `${head}<h3>${esc(run.plan ? run.plan.title : "Plano")} <span class="faint small">v${run.plan_version} · ${esc(SIZE[run.size])}</span></h3>
         <p class="muted">${esc(b.understanding || "")}</p>
         <div class="cols"><div><h2>Critérios</h2><ul class="list">${run.criteria.map((c) => `<li><span class="id">${esc(c.id)}</span><span class="body">${esc(c.text)}</span></li>`).join("")}</ul></div>
-        <div><h2>Passos</h2><ul class="list">${steps.map((s) => `<li><span class="id">${esc(s.id)}</span><span class="body">${esc(s.title)}${s.test ? `<div class="meta">teste: ${esc(s.test)}</div>` : ""}</span></li>`).join("")}</ul></div></div>
+        <div><h2>Passos</h2><ul class="list">${steps.map((s) => `<li><span class="id">${esc(s.id)}</span><span class="body">${esc(s.title)}${s.test ? `<div class="meta">teste: ${esc(s.test)}</div>` : ""}${s.test_command ? `<div class="meta mono">o Passo roda: ${esc(s.test_command)}</div>` : ""}</span></li>`).join("")}</ul></div></div>
         ${run.plan && run.plan.notes ? `<p class="small muted" style="margin-top:12px">${esc(run.plan.notes)}</p>` : ""}
         ${questionsHtml(run, g.questions, false)}
+        ${steps.some((s) => s.test_command) ? '<p class="small" style="margin-top:12px;color:var(--accent)">Aprovar também autoriza o Passo a rodar os comandos de teste listados nos passos.</p>' : ""}
         <div class="actions"><button class="primary" id="ok">Aprovar</button><button id="no">Recusar…</button><span class="cmd" id="cmd">passo ok</span></div>
         ${reject("O que mudar no pedido ou no plano")}<div class="err" id="err"></div>`;
     }
@@ -217,7 +218,7 @@
       const who = run.steps.filter((x) => (x.criteria || []).includes(id)).map((x) => x.id + (x.commit ? " " + x.commit.slice(0, 7) : ""));
       return who.length ? `<div class="meta">← ${esc(who.join(", "))}</div>` : "";
     };
-    const steps = run.steps.map((x) => `<li><span class="mark ${mark[x.status][1]}">${mark[x.status][0]}</span><span class="id">${esc(x.id)}</span><span class="body">${esc(x.title)}${x.fix ? ' <span class="tag">ajuste</span>' : ""}${x.criteria && x.criteria.length ? `<div class="meta">atende ${esc(x.criteria.join(", "))}</div>` : ""}${x.summary ? `<div class="meta">${esc(x.summary)}</div>` : ""}</span>${x.commit ? `<span class="hash">${esc(x.commit.slice(0, 7))}</span>` : ""}</li>`).join("");
+    const steps = run.steps.map((x) => `<li><span class="mark ${mark[x.status][1]}">${mark[x.status][0]}</span><span class="id">${esc(x.id)}</span><span class="body">${esc(x.title)}${x.fix ? ' <span class="tag">ajuste</span>' : ""}${x.criteria && x.criteria.length ? `<div class="meta">atende ${esc(x.criteria.join(", "))}</div>` : ""}${x.test_command ? `<div class="meta mono">o Passo roda: ${esc(x.test_command)}</div>` : ""}${x.summary ? `<div class="meta">${esc(x.summary)}</div>` : ""}</span>${x.commit ? `<span class="hash">${esc(x.commit.slice(0, 7))}</span>` : ""}</li>`).join("");
     const crit = run.criteria.map((c) => `<li><span class="mark ${c.ok === true ? "ok" : c.ok === false ? "bad" : ""}">${c.ok === true ? "✓" : c.ok === false ? "✗" : "·"}</span><span class="id">${esc(c.id)}</span><span class="body">${esc(c.text)}${by(c.id)}${c.evidence ? `<div class="meta">${esc(c.evidence)}</div>` : ""}</span></li>`).join("");
     $("plan").innerHTML = `<div class="cols"><div><h2>Passos</h2><ul class="list">${steps}</ul></div><div><h2>Critérios de aceite</h2><ul class="list">${crit}</ul></div></div>`;
   }

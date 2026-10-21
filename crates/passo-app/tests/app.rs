@@ -385,3 +385,26 @@ fn an_old_toml_config_stops_init_and_open() {
     );
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn passo_runs_the_steps_own_test() {
+    let p = Project::new("rodar");
+    p.app().start("Algo pequeno", Some(passo_core::Size::P)).unwrap();
+    let brief = p.draft("brief-rodar", r#"{"entendimento":"x","escopo":["a"]}"#);
+    p.done(&brief);
+    let plan = p.draft(
+        "plan-rodar",
+        r#"{"titulo":"T","criterios":["existe"],
+        "passos":[{"titulo":"Criar","teste":"x existe","criterios":["C1"],"rodar":"test -f tests/x.txt"}]}"#,
+    );
+    let out = p.done(&plan);
+    assert!(out.contains("autoriza o Passo a rodar"), "{out}");
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    assert!(p.app().next().unwrap().contains("o Passo roda: test -f tests/x.txt"));
+    p.write("src/lib.txt", "mudou\n");
+    let out = p.done("sem o teste ainda");
+    assert!(out.contains("a checagem `test -f tests/x.txt` falhou"), "{out}");
+    p.write("tests/x.txt", "ok\n");
+    let out = p.done("com o teste");
+    assert!(out.contains("# Agente: revisor"), "{out}");
+}

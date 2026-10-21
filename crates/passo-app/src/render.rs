@@ -159,7 +159,18 @@ fn context(view: &View) -> String {
                 if !meets.is_empty() {
                     let _ = writeln!(out, "Atende: {}", meets.join(" · "));
                 }
-                if step.test.is_empty() {
+                if !step.test_command.is_empty() {
+                    let test = if step.test.is_empty() {
+                        "o deste passo"
+                    } else {
+                        step.test.as_str()
+                    };
+                    let _ = writeln!(
+                        out,
+                        "Teste (escreva primeiro): {test} · o Passo roda: {}",
+                        step.test_command
+                    );
+                } else if step.test.is_empty() {
                     let _ = writeln!(out, "Teste: este passo não pede teste novo.");
                 } else {
                     let _ = writeln!(out, "Teste (escreva primeiro): {}", step.test);
@@ -278,6 +289,13 @@ pub fn gate(view: &View) -> String {
                 let _ = writeln!(out, "Notas: {}", plan.notes);
             }
             questions(run, &gate.questions, &mut out);
+            if run
+                .steps
+                .iter()
+                .any(|s| s.status != StepStatus::Done && !s.test_command.is_empty())
+            {
+                out.push_str("\nAprovar também autoriza o Passo a rodar os comandos de teste listados nos passos.\n");
+            }
             out.push_str(
                 "\nResponda:\n  ok                 aprova (perguntas sem resposta ficam com a recomendada ★)\n  ok 1b              escolhe a opção B na pergunta 1\n  ok 1=suas palavras responde com as suas palavras\n  não: o que mudar   recusa e o pedido volta para o refinamento\n",
             );
@@ -411,6 +429,9 @@ fn plan_overview(run: &Run, out: &mut String) {
             }
             if !s.criteria.is_empty() {
                 extra.push(format!("atende {}", s.criteria.join(", ")));
+            }
+            if !s.test_command.is_empty() {
+                extra.push(format!("o Passo roda: {}", s.test_command));
             }
             let extra = if extra.is_empty() {
                 String::new()

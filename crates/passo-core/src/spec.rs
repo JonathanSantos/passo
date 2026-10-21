@@ -76,6 +76,9 @@ pub struct PlanStep {
     /// Ids of the criteria this step meets (`C1`, `C2`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub criteria: Vec<String>,
+    /// The narrowest command that runs this step's test (`rodar`); Passo runs it on `done`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub test_command: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -344,6 +347,7 @@ pub fn parse_plan(text: &str) -> Result<Plan, Invalid> {
             files: r.list(s, &path, "arquivos", false),
             test: r.text(s, &path, "teste", false),
             criteria: criterion_refs(&mut r, s, &path, criteria.len()),
+            test_command: r.text(s, &path, "rodar", false),
         });
     }
     let notes = r.text(&root, "", "notas", false);
@@ -494,7 +498,8 @@ pub const PLAN_TEMPLATE: &str = r#"{
       "detalhe": "como, se ajudar (opcional)",
       "arquivos": ["src/arquivo.ext"],
       "teste": "o teste que prova este passo (vazio se não há o que testar)",
-      "criterios": ["C1"]
+      "criterios": ["C1"],
+      "rodar": "o comando mais estreito que roda só esse teste (opcional)"
     }
   ],
   "notas": "decisões de design (opcional)"

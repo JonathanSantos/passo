@@ -3,12 +3,15 @@
 //! Nothing here touches the disk, git or a clock: the caller measures the world (check results, the diff) and hands
 //! the facts in; the engine decides; the caller carries out the effects. Same input, same output, every time.
 
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::answers::{Answer, Decision};
 use crate::config::{Config, Mode, Profile};
+use crate::lock::{self, ToolKind, ToolUse, Verdict};
 use crate::model::*;
 use crate::spec::{Brief, Invalid, Plan, Question, Review};
 
@@ -303,6 +306,32 @@ impl<'a> Engine<'a> {
                 run.size.id()
             )])));
         }
+        // A test command is the first thing an agent writes that Passo runs itself: it goes through the lock. Only
+        // the command matters here, so the project root is a placeholder and core stays free of the filesystem.
+        let mut refused = vec![];
+        for (i, step) in plan
+            .steps
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| !s.test_command.is_empty())
+        {
+            let tool = ToolUse {
+                name: "rodar".into(),
+                kind: ToolKind::Exec,
+                paths: vec![],
+                command: Some(step.test_command.clone()),
+            };
+            if let Verdict::Deny(reason) = lock::judge(&tool, Path::new("/"), Some(run)) {
+                let reason = reason.split(". ").next().unwrap_or(&reason).trim_end_matches('.');
+                refused.push(format!(
+                    "`passos[{i}].rodar` não pode ser \"{}\": {reason}",
+                    step.test_command
+                ));
+            }
+        }
+        if !refused.is_empty() {
+            return Err(FlowError::Invalid(Invalid(refused)));
+        }
         // On a re-plan the steps already done keep meeting criteria under the old numbering, so only a first plan
         // is held to "every criterion has a step".
         if !run.steps.iter().any(|s| s.status == StepStatus::Done) {
@@ -348,6 +377,7 @@ impl<'a> Engine<'a> {
             files: s.files.clone(),
             test: s.test.clone(),
             criteria: s.criteria.clone(),
+            test_command: s.test_command.clone(),
             status: StepStatus::Todo,
             attempts: 0,
             fix: false,
@@ -379,8 +409,13 @@ impl<'a> Engine<'a> {
         );
         run.plan = Some(plan);
         let open: Vec<String> = run.open_questions().iter().map(|q| q.id.clone()).collect();
-        if self.profile(run).approve_plan || !open.is_empty() {
-            let detail = if open.is_empty() {
+        // Commands Passo will run need the dev's yes, whatever the size says.
+        let runs_commands = run
+            .steps
+            .iter()
+            .any(|s| s.status != StepStatus::Done && !s.test_command.is_empty());
+        if self.profile(run).approve_plan || !open.is_empty() || runs_commands {
+            let mut detail = if open.is_empty() {
                 "Aprove o plano ou recuse dizendo o que mudar.".to_string()
             } else {
                 format!(
@@ -388,6 +423,9 @@ impl<'a> Engine<'a> {
                     open.len()
                 )
             };
+            if runs_commands {
+                detail.push_str(" Aprovar também autoriza o Passo a rodar os comandos de teste listados nos passos.");
+            }
             self.open_gate(run, GateKind::Aprovar, "Aprovar o plano".into(), detail, open, out, now);
         } else {
             run.approved_plan = Some(print);
@@ -610,6 +648,14 @@ impl<'a> Engine<'a> {
                 detail: c.evidence.clone(),
                 test: format!("um teste que prove {}: {}", c.id, c.text),
                 criteria: vec![c.id.clone()],
+                // The last step that met the criterion knows how to run its test.
+                test_command: run
+                    .steps
+                    .iter()
+                    .rev()
+                    .find(|s| s.criteria.contains(&c.id) && !s.test_command.is_empty())
+                    .map(|s| s.test_command.clone())
+                    .unwrap_or_default(),
             })
             .collect();
         let ok = run.criteria.len() - failing.len();
@@ -1015,6 +1061,7 @@ struct Fix {
     detail: String,
     test: String,
     criteria: Vec<String>,
+    test_command: String,
 }
 
 impl Fix {
@@ -1024,6 +1071,7 @@ impl Fix {
             detail,
             test: String::new(),
             criteria: vec![],
+            test_command: String::new(),
         }
     }
 }
@@ -1041,6 +1089,7 @@ fn add_fix_steps(run: &mut Run, fixes: Vec<Fix>) {
             files: vec![],
             test: fix.test,
             criteria: fix.criteria,
+            test_command: fix.test_command,
             status: StepStatus::Todo,
             attempts: 0,
             fix: true,
@@ -1101,8 +1150,9 @@ fn auto_plan(run: &Run) -> Plan {
             detail: String::new(),
             files: vec![],
             test: String::new(),
-            // The single step of an automatic plan meets every criterion.
+            // The single step of an automatic plan meets every criterion, and never runs a command of its own.
             criteria: (1..=count).map(|n| format!("C{n}")).collect(),
+            test_command: String::new(),
         }],
         notes: String::new(),
     }
