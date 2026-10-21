@@ -153,8 +153,26 @@ fn context(view: &View) -> String {
             checklists(view, &mut out);
         }
         Stage::Construir => {
-            plan_overview(run, &mut out);
+            // Only what this step needs: the plan's title, the step before, this one, the next one.
+            if let Some(plan) = &run.plan {
+                let _ = writeln!(out, "\nPlano: {}", plan.title);
+            }
+            let current = run.steps.iter().position(|s| s.status == StepStatus::Doing);
+            if let Some(previous) = run.steps.iter().rev().find(|s| s.status == StepStatus::Done) {
+                let summary = if previous.summary.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {}", previous.summary)
+                };
+                let _ = writeln!(out, "Passo anterior: ✓ {} {}{summary}", previous.id, previous.title);
+            }
             if let Some(step) = run.current_step() {
+                if step.criteria.is_empty() && !run.criteria.is_empty() {
+                    out.push_str("Critérios de aceite:\n");
+                    for c in &run.criteria {
+                        let _ = writeln!(out, "  {} {}", c.id, c.text);
+                    }
+                }
                 let _ = writeln!(out, "\nPasso da vez: {} · {}", step.id, step.title);
                 if !step.detail.is_empty() {
                     let _ = writeln!(out, "Detalhe: {}", step.detail);
@@ -203,13 +221,19 @@ fn context(view: &View) -> String {
             if !checks.is_empty() {
                 let _ = writeln!(out, "\nO Passo roda depois do seu `done`: {}", checks.join(" · "));
             }
+            if let Some(next) = current.and_then(|i| run.steps[i + 1..].iter().find(|s| s.status == StepStatus::Todo)) {
+                let _ = writeln!(out, "Depois deste: {} {}", next.id, next.title);
+            }
             if profile.require_tests {
                 let _ = writeln!(
                     out,
                     "Um passo com teste precisa mudar um arquivo de teste, ou volta para você."
                 );
             }
-            notes(run, &mut out);
+            let picked = builder_notes(run);
+            if !picked.is_empty() {
+                list(&mut out, "Notas do run", &picked);
+            }
         }
         Stage::Verificar => {
             plan_overview(run, &mut out);
@@ -477,6 +501,40 @@ fn criteria_map(run: &Run) -> Vec<String> {
             format!("{} ← {who}", c.id)
         })
         .collect()
+}
+
+/// The notes a builder needs: what earlier steps said about this step's files, what the review said, and the five
+/// most recent. Never more than ten.
+fn builder_notes(run: &Run) -> Vec<String> {
+    const MAX: usize = 10;
+    let Some(step) = run.current_step() else { return vec![] };
+    let done: Vec<&str> = run
+        .steps
+        .iter()
+        .filter(|s| s.status == StepStatus::Done)
+        .map(|s| s.id.as_str())
+        .collect();
+    let from_done = |note: &str| {
+        done.iter()
+            .any(|id| note.starts_with(&format!("{id}:")) || note.starts_with(&format!("{id} ")))
+    };
+    let mut picked: Vec<String> = vec![];
+    let add = |note: &String, picked: &mut Vec<String>| {
+        if !picked.contains(note) {
+            picked.push(note.clone());
+        }
+    };
+    for note in &run.notes {
+        let about_this_step = from_done(note) && step.files.iter().any(|f| note.contains(f.as_str()));
+        if about_this_step || note.starts_with("Revisão:") {
+            add(note, &mut picked);
+        }
+    }
+    for note in run.notes.iter().rev().take(5) {
+        add(note, &mut picked);
+    }
+    picked.truncate(MAX);
+    picked
 }
 
 fn repo_map(view: &View, out: &mut String) {

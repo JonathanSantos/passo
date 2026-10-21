@@ -500,3 +500,30 @@ fn refining_shows_a_map_of_the_repository() {
     .unwrap();
     assert!(map.lines().count() <= 60);
 }
+
+#[test]
+fn the_builder_sees_only_its_neighbourhood() {
+    let p = Project::new("narrow");
+    p.app().start("Algo médio", None).unwrap();
+    let brief = p.draft("brief-narrow", r#"{"entendimento":"x","escopo":["a"]}"#);
+    p.done(&brief);
+    let plan = p.draft(
+        "plan-narrow",
+        r#"{"titulo":"T","criterios":["c"],"passos":[{"titulo":"Alfa","criterios":["C1"]},{"titulo":"Beta"},{"titulo":"Gama"},{"titulo":"Delta"}]}"#,
+    );
+    p.done(&plan);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    p.write("src/a.txt", "a\n");
+    let out = p.done("alfa feito");
+    assert!(out.contains("Passo anterior: ✓ S1 Alfa — alfa feito"), "{out}");
+    assert!(out.contains("Depois deste: S3 Gama"), "{out}");
+    assert!(!out.contains("Delta"), "the step after next is not shown: {out}");
+
+    let app = p.app();
+    let mut run = app.active().unwrap();
+    run.notes = (1..=12).map(|i| format!("nota {i}")).collect();
+    app.store.save(&run).unwrap();
+    let out = p.app().next().unwrap();
+    let shown = out.lines().filter(|l| l.starts_with("- nota ")).count();
+    assert!(shown <= 10 && shown > 0, "{shown} notes: {out}");
+}
