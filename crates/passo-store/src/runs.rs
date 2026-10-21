@@ -96,7 +96,7 @@ impl Store {
             .filter_map(|e| e.file_name().to_str().map(str::to_string))
             .filter_map(|id| self.load(&id).ok())
             .collect();
-        runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        runs.sort_by_key(|r| std::cmp::Reverse(r.created_at));
         runs
     }
 
