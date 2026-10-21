@@ -174,6 +174,15 @@ impl Git {
             .collect())
     }
 
+    /// Files that differ between `base` and the working tree (committed or not).
+    pub fn changed_since(&self, base: &str) -> Result<Vec<String>> {
+        Ok(self
+            .output(&["diff", "--name-only", base])?
+            .lines()
+            .map(str::to_string)
+            .collect())
+    }
+
     /// `(path, added + removed)` for everything staged against the run's base.
     pub fn numstat(&self, base: &str) -> Result<Vec<(String, usize)>> {
         Ok(self

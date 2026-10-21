@@ -676,3 +676,74 @@ fn a_mapping_that_changes_files_is_refused() {
         .to_string();
     assert!(err.contains("só leitura") && err.contains("src/lib.txt"), "{err}");
 }
+
+fn write_map(p: &Project) {
+    let area = |id: &str, paths: &str, tags: &str, body: &str| {
+        p.write(
+            &format!(".passo/map/areas/{id}.md"),
+            &format!("---\npaths: [{paths}]\ntags: [{tags}]\n---\n{body}\n"),
+        );
+    };
+    p.write(
+        ".passo/map/projeto.md",
+        "---\nsources: [src/lib.txt]\n---\nStack: texto puro\nTestar: `true`\n",
+    );
+    area("tarefas", "src/lib.txt", "tarefas", "As regras das tarefas.");
+    area("relatorios", "src/rel/**", "relatório", "Os relatórios mensais.");
+    area("infra", "deploy/**", "deploy", "Como o deploy é feito.");
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-qm", "mapa"]);
+}
+
+#[test]
+fn each_stage_reads_only_its_part_of_the_map() {
+    let p = Project::new("map-context");
+    write_map(&p);
+    let out = p.app().start("Adicionar prioridade às tarefas", None).unwrap();
+    assert!(
+        out.contains("Mapa do projeto:") && out.contains("tarefas (src/lib.txt)"),
+        "{out}"
+    );
+    assert!(!out.contains("relatorios") && !out.contains("infra ("), "{out}");
+    assert!(
+        !out.contains("Árvore do repositório"),
+        "the map takes the tree's place: {out}"
+    );
+    let brief = p.draft(
+        "brief-map",
+        r#"{"entendimento":"prioridade","escopo":["a"],"arquivos":["src/lib.txt"]}"#,
+    );
+    p.done(&brief);
+    let plan = p.draft(
+        "plan-map",
+        r#"{"titulo":"T","criterios":["c"],"passos":[{"titulo":"S","arquivos":["src/lib.txt","src/novo.txt"],"criterios":["C1"]}]}"#,
+    );
+    p.done(&plan);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    let out = p.app().next().unwrap();
+    assert!(
+        out.contains("tarefas (src/lib.txt)") && !out.contains("relatorios"),
+        "{out}"
+    );
+    assert!(out.contains("Fora do mapa: src/novo.txt"), "{out}");
+    let snapshot = p.app().snapshot(None).unwrap();
+    assert_eq!(snapshot.map_nodes, vec!["tarefas".to_string()]);
+}
+
+#[test]
+fn a_broken_map_is_a_warning_and_the_lock_still_works() {
+    let p = Project::new("map-broken");
+    write_map(&p);
+    p.write(".passo/map/areas/infra.md", "---\npaths: [deploy/**\n---\ncorpo\n");
+    p.git(&["commit", "-qam", "quebrado"]);
+    let out = p.app().start("Algo", None).unwrap();
+    assert!(
+        out.starts_with("Aviso: mapa do projeto ignorado:") && out.contains("infra.md"),
+        "{out}"
+    );
+    let denied = p.hook(
+        HookEvent::PreToolUse,
+        tool(&p.root, "Write", serde_json::json!({"file_path": "src/x.txt"})),
+    );
+    assert!(denied.unwrap().contains("só leitura"));
+}

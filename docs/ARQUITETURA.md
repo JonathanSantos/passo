@@ -46,6 +46,10 @@ Por isso o fluxo é determinístico: a mesma sequência de comandos e fatos dá 
 
 Toda mudança de intenção passa pelo Refinar: recusar o plano e `passo change` mandam o run de volta ao refinamento, e os passos já feitos ficam. Cada resposta, recusa, mudança, dica, troca de tamanho e nova versão do plano vira um `Change` com quem, quando, em que etapa e o antes e depois. Cada versão do plano fica em `plan-v<N>.json`, e a aprovada fica registrada pela impressão digital.
 
+## O mapa do projeto
+
+Opcional. Um agente explorador (`passo map`, só leitura) entrega o mapa do projeto em JSON; o Passo confere a forma (`spec::parse_map`, puro) e o disco (caminhos que casam arquivos rastreados, fontes que existem, nada mudado durante o mapeamento) e grava `.passo/map/` em Markdown, no git. O `App` guarda o resultado da leitura sem nunca falhar: um mapa quebrado vira um aviso e o fluxo segue sem ele, com a trava inteira. A cada etapa, `passo_core::map::select` (puro) escolhe o que entra no contexto pelo alvo da etapa (o pedido em Refinar, os arquivos do pedido refinado em Planejar, os do passo em Construir, os do diff em Verificar) e pelo orçamento de linhas do tamanho (`map_lines`). Com mapa, a árvore de pastas sai de Refinar e Planejar.
+
 ## Auditoria
 
 `events.jsonl` guarda uma linha por evento, e cada linha leva o SHA-256 da anterior. Editar ou apagar uma linha quebra a cadeia, e `passo log --verify` (ou o rodapé do painel) diz onde. Hooks e CLI escrevem ao mesmo tempo, então cada escrita pega uma trava de arquivo (`File::lock`) e lê só a última linha para encadear.

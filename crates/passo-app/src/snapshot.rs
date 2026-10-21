@@ -63,4 +63,6 @@ pub struct Snapshot {
     pub platforms: Vec<String>,
     pub checks_step: Vec<String>,
     pub checks_final: Vec<String>,
+    /// Project map areas and libs the agent was shown on its current turn.
+    pub map_nodes: Vec<String>,
 }

@@ -78,7 +78,7 @@
       ? `<h3>${esc(step.id)} · ${esc(step.title)}</h3>${step.test ? `<p class="muted small">Teste: ${esc(step.test)}</p>` : ""}${step.attempts ? `<p class="small" style="color:var(--warn)">Tentativa ${step.attempts + 1}</p>` : ""}`
       : `<h3>${esc(LABEL[run.stage])}</h3>`;
     const calls = step ? s.events.filter((e) => e.kind === "tool" && e.data && e.data.step === step.id).length : 0;
-    const doing = (lastTool ? `<p class="faint small mono">${esc(lastTool.text)}</p>` : "") + (calls ? `<p class="faint small">${calls} ações neste passo</p>` : "");
+    const doing = (lastTool ? `<p class="faint small mono">${esc(lastTool.text)}</p>` : "") + (calls ? `<p class="faint small">${calls} ações neste passo</p>` : "") + (s.map_nodes && s.map_nodes.length ? `<p class="faint small">Mapa: ${esc(s.map_nodes.join(", "))}</p>` : "");
     const fb = run.feedback ? `<details class="check"><summary><span class="small" style="color:var(--warn)">O que o Passo devolveu ao agente</span></summary><pre>${esc(run.feedback)}</pre></details>` : "";
     el.innerHTML = `<div class="turn">Vez do agente</div>${what}${doing}${fb}`;
   }

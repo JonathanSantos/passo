@@ -80,6 +80,9 @@ pub struct App {
     pub layers: Vec<String>,
     pub catalog: Catalog,
     pub bin: String,
+    /// The project map as read when the app opened: `Err` holds why it was ignored. Never fails the app: a broken
+    /// map file must not switch the lock off.
+    pub map: std::result::Result<Option<passo_core::map::Map>, String>,
     clock: Arc<dyn Clock>,
     runner: Arc<dyn CheckRunner>,
     reporter: Option<Arc<dyn Reporter>>,
@@ -98,6 +101,7 @@ impl App {
         let catalog = Catalog::load(&layout)?;
         let mut config = loaded.config;
         fill_platform_models(&mut config);
+        let map = passo_store::map::load(&layout).map_err(|e| format!("{e:#}"));
         Ok(App {
             store: Store::new(layout.clone()),
             layout,
@@ -105,6 +109,7 @@ impl App {
             layers: loaded.layers,
             catalog,
             bin: "passo".into(),
+            map,
             clock: Arc::new(SystemClock),
             runner: Arc::new(ShellRunner),
             reporter: None,
@@ -273,14 +278,72 @@ impl App {
     pub fn next_text(&self, run: &Run) -> String {
         let delegation = |agent: &str| self.delegation(agent);
         let tree = std::fs::read_to_string(self.layout.tree(&run.id)).ok();
-        render::next(&View {
+        let files = self.map_files(run);
+        let selection = self.map_selection(run, &files);
+        let text = render::next(&View {
             run,
             config: &self.config,
             catalog: &self.catalog,
             delegation: &delegation,
             bin: &self.bin,
             tree: tree.as_deref(),
-        })
+            map: selection.as_ref(),
+        });
+        match self.map_warning() {
+            Some(warning) => format!("{warning}\n{text}"),
+            None => text,
+        }
+    }
+
+    /// One line when the project map was ignored, for the dev and the agent.
+    pub fn map_warning(&self) -> Option<String> {
+        self.map
+            .as_ref()
+            .err()
+            .map(|e| format!("Aviso: mapa do projeto ignorado: {e}"))
+    }
+
+    /// The files the stage is working on, for the map: the brief's, the step's, or the run's diff.
+    pub(crate) fn map_files(&self, run: &Run) -> Vec<String> {
+        match run.stage {
+            Stage::Planejar => run.brief.as_ref().map(|b| b.files.clone()).unwrap_or_default(),
+            Stage::Construir => run.current_step().map(|s| s.files.clone()).unwrap_or_default(),
+            Stage::Verificar => match (
+                self.uses_git(run),
+                run.workspace.as_ref().and_then(|w| w.base.as_deref()),
+            ) {
+                (true, Some(base)) => self.git().changed_since(base).unwrap_or_default(),
+                _ => vec![],
+            },
+            Stage::Refinar | Stage::Entregar => vec![],
+        }
+    }
+
+    /// The part of the project map the run's stage reads, within the size's line budget.
+    pub(crate) fn map_selection<'a>(&'a self, run: &Run, files: &[String]) -> Option<passo_core::map::Selection<'a>> {
+        let map = self.map.as_ref().ok()?.as_ref()?;
+        let words = match run.stage {
+            Stage::Planejar => run.brief.as_ref().map(|b| b.understanding.clone()).unwrap_or_default(),
+            _ => {
+                let changes = run
+                    .changes
+                    .iter()
+                    .filter(|c| c.kind == ChangeKind::Mudanca)
+                    .map(|c| c.text.as_str());
+                std::iter::once(run.request.as_str())
+                    .chain(changes)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+        };
+        let budget = self.config.profile(run.size).map_lines.for_stage(run.stage);
+        let target = passo_core::map::Target {
+            stage: run.stage,
+            files,
+            words: &words,
+        };
+        let selection = passo_core::map::select(map, &target, budget);
+        (!selection.nodes.is_empty()).then_some(selection)
     }
 
     pub fn done(&self, input: DoneInput) -> Result<String> {
@@ -453,6 +516,7 @@ impl App {
             delegation: &delegation,
             bin: &self.bin,
             tree: None,
+            map: None,
         })
     }
 
@@ -917,6 +981,21 @@ impl App {
             }
             None => (vec![], None, None),
         };
+        let map_nodes: Vec<String> = match run.as_ref().filter(|r| r.turn() == Turn::Agent) {
+            Some(r) => {
+                let files = self.map_files(r);
+                self.map_selection(r, &files)
+                    .map(|s| {
+                        s.nodes
+                            .iter()
+                            .filter(|n| n.id != "projeto")
+                            .map(|n| n.id.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            None => vec![],
+        };
         Ok(Snapshot {
             generated_at: self.clock.now(),
             project: self
@@ -938,6 +1017,7 @@ impl App {
             platforms: self.platforms().iter().map(|p| p.label().to_string()).collect(),
             checks_step: self.config.checks.step.clone(),
             checks_final: self.config.checks.final_.clone(),
+            map_nodes,
         })
     }
 }

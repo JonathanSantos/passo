@@ -14,8 +14,10 @@ pub struct View<'a> {
     /// How to hand a stage to a subagent on the installed platform(s).
     pub delegation: &'a dyn Fn(&str) -> String,
     pub bin: &'a str,
-    /// The repository tree, shown while refining and planning.
+    /// The repository tree, shown while refining and planning when there is no project map.
     pub tree: Option<&'a str>,
+    /// The part of the project map this stage reads, already selected.
+    pub map: Option<&'a passo_core::map::Selection<'a>>,
 }
 
 /// `Refinar ✓ · Planejar ✓ · Construir ▸ · Verificar · Entregar`, with `(auto)` where the size skips the agent.
@@ -129,6 +131,7 @@ fn context(view: &View) -> String {
     if let Some(context) = &view.catalog.context {
         let _ = writeln!(out, "\nConvenções do projeto:\n{}", context.trim());
     }
+    project_map(view, &mut out);
 
     match run.stage {
         Stage::Refinar => repo_tree(view, &mut out),
@@ -537,7 +540,52 @@ fn builder_notes(run: &Run) -> Vec<String> {
     picked
 }
 
+/// The selected part of the project map: the project, the areas with what they depend on, the libs, and the
+/// target files no area covers.
+fn project_map(view: &View, out: &mut String) {
+    use passo_core::map::NodeKind;
+    let Some(selection) = view.map else { return };
+    out.push_str("\nMapa do projeto:\n");
+    let indent = |body: &str, out: &mut String| {
+        for line in body.lines().filter(|l| !l.trim().is_empty()) {
+            let _ = writeln!(out, "    {line}");
+        }
+    };
+    for node in &selection.nodes {
+        match node.kind {
+            NodeKind::Project => out.push_str("  projeto:\n"),
+            NodeKind::Area => {
+                let mut head = format!("  {} ({})", node.id, node.paths.join(", "));
+                if !node.depends_on.is_empty() {
+                    head.push_str(&format!(" ← depende de {}", node.depends_on.join(", ")));
+                }
+                if !node.libs.is_empty() {
+                    head.push_str(&format!(" · libs: {}", node.libs.join(", ")));
+                }
+                let _ = writeln!(out, "{head}");
+            }
+            NodeKind::Lib => {
+                let _ = writeln!(out, "  lib {}:", node.id);
+            }
+        }
+        indent(&node.body, out);
+    }
+    if !selection.uncovered.is_empty() {
+        let shown: Vec<&str> = selection.uncovered.iter().take(5).map(String::as_str).collect();
+        let more = if selection.uncovered.len() > 5 { ", …" } else { "" };
+        let _ = writeln!(
+            out,
+            "Fora do mapa: {}{more} (nenhuma área cobre; vale rodar `passo map` depois)",
+            shown.join(", ")
+        );
+    }
+}
+
 fn repo_tree(view: &View, out: &mut String) {
+    // With a project map, the map's project and areas take the tree's place.
+    if view.map.is_some() {
+        return;
+    }
     if let Some(tree) = view.tree.filter(|t| !t.trim().is_empty()) {
         let _ = writeln!(out, "\nÁrvore do repositório:\n{}", tree.trim_end());
     }
