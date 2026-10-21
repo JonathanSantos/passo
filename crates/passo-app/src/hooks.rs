@@ -8,7 +8,7 @@ use std::sync::Arc;
 use passo_adapters::{HookEvent, HookReply, Platform};
 use passo_core::answers::{ChatDecision, parse_chat};
 use passo_core::lock::{self, ToolUse, Verdict};
-use passo_core::{Actor, EventDraft, Turn};
+use passo_core::{Actor, EventDraft, Run, Stage, Turn};
 use passo_store::{Layout, Transcript};
 use serde_json::{Value, json};
 
@@ -112,23 +112,33 @@ fn decide(
             };
             let root = std::fs::canonicalize(&app.layout.root).unwrap_or(app.layout.root.clone());
             let verdict = lock::judge(&tool, &root, run.as_ref());
+            let mut warning = None;
             if let Some(run) = run.as_ref().filter(|r| r.active()) {
+                let step = run.current_step().filter(|_| run.stage == Stage::Construir);
                 let (kind, text) = match &verdict {
                     Verdict::Allow => ("tool", describe(&tool, &root)),
                     Verdict::Deny(reason) => ("lock.denied", reason.clone()),
                 };
-                let draft = EventDraft {
+                let mut drafts = vec![EventDraft {
                     kind,
                     actor: Actor::Agent,
                     stage: run.stage,
                     text,
-                    data: json!({ "tool": tool.name, "call": describe(&tool, &root) }),
-                };
-                app.store.log(&run.id).append(&run.id, &[draft], chrono::Utc::now())?;
+                    data: json!({
+                        "tool": tool.name,
+                        "call": describe(&tool, &root),
+                        "step": step.map(|s| s.id.clone()),
+                    }),
+                }];
+                if run.turn() == Turn::Agent {
+                    warning = budget(&app, run, &mut drafts)?;
+                }
+                app.store.log(&run.id).append(&run.id, &drafts, chrono::Utc::now())?;
             }
-            Ok(match verdict {
-                Verdict::Allow => HookReply::Allow,
-                Verdict::Deny(reason) => HookReply::Deny(reason),
+            Ok(match (verdict, warning) {
+                (Verdict::Deny(reason), _) => HookReply::Deny(reason),
+                (Verdict::Allow, Some(warning)) => HookReply::Context(warning),
+                (Verdict::Allow, None) => HookReply::Allow,
             })
         }
         HookEvent::Stop => {
@@ -151,6 +161,44 @@ fn decide(
         }
         HookEvent::SubagentStop => Ok(HookReply::Allow),
     }
+}
+
+/// Counts the call against the step's action budget. Past the limit the agent is told, never stopped: once at the
+/// limit, then every 20 calls. The first time also leaves a `step.budget` event.
+fn budget(app: &App, run: &Run, drafts: &mut Vec<EventDraft>) -> anyhow::Result<Option<String>> {
+    const REPEAT: u32 = 20;
+    let limit = app.config.profile(run.size).max_tool_calls;
+    if limit == 0 {
+        return Ok(None);
+    }
+    let (key, place) = match run.current_step().filter(|_| run.stage == Stage::Construir) {
+        Some(step) => (
+            format!("{}:{}:{}", run.stage.id(), step.id, step.attempts),
+            "neste passo",
+        ),
+        None => (run.stage.id().to_string(), "nesta etapa"),
+    };
+    let count = app.store.count_tool(&run.id, &key)?;
+    if count <= limit || !(count - limit - 1).is_multiple_of(REPEAT) {
+        return Ok(None);
+    }
+    if count == limit + 1 {
+        drafts.push(EventDraft {
+            kind: "step.budget",
+            actor: Actor::Passo,
+            stage: run.stage,
+            text: format!("Passou de {limit} ações {place}"),
+            data: json!({ "key": key }),
+        });
+    }
+    let done = if run.stage == Stage::Construir {
+        "passo done"
+    } else {
+        "passo done <arquivo>"
+    };
+    Ok(Some(format!(
+        "Passo: já foram {count} ações {place} (limite {limit}). Entregue com {done}, ou pergunte com passo ask se travou."
+    )))
 }
 
 fn describe(tool: &ToolUse, root: &Path) -> String {

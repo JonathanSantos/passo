@@ -147,15 +147,29 @@ impl Store {
 
     /// Counts how many times the stop hook blocked the agent at the same spot.
     pub fn count_stop(&self, id: &str, key: &str) -> Result<u32> {
-        let path = self.layout.stops(id);
-        let mut counts: BTreeMap<String, u32> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
-        let count = counts.entry(key.to_string()).or_insert(0);
-        *count += 1;
-        let value = *count;
-        write_atomic(&path, serde_json::to_string(&counts)?.as_bytes())?;
-        Ok(value)
+        bump(&self.layout.stops(id), key)
     }
+
+    /// Counts a tool call for the action budget; `key` names the step and attempt (or the stage).
+    pub fn count_tool(&self, id: &str, key: &str) -> Result<u32> {
+        bump(&self.layout.budget(id), key)
+    }
+}
+
+/// Adds one to a counter in a small JSON map. Hooks run in parallel, so the update holds a file lock.
+fn bump(path: &std::path::Path, key: &str) -> Result<u32> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let lock = std::fs::File::create(path.with_extension("lock"))?;
+    lock.lock().context("trava do contador")?;
+    let mut counts: BTreeMap<String, u32> = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let count = counts.entry(key.to_string()).or_insert(0);
+    *count += 1;
+    let value = *count;
+    write_atomic(path, serde_json::to_string(&counts)?.as_bytes())?;
+    Ok(value)
 }

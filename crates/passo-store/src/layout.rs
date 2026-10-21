@@ -78,6 +78,10 @@ impl Layout {
     pub fn stops(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("stops.json")
     }
+    /// Tool calls counted per step, for the action budget.
+    pub fn budget(&self, id: &str) -> PathBuf {
+        self.run_dir(id).join("budget.json")
+    }
     /// The repository map shown while refining and planning (a fact of the world, regenerated on a change).
     pub fn map(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("map.md")

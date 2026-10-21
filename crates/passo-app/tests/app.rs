@@ -550,3 +550,45 @@ fn accepting_from_the_chat_needs_aceito() {
     .unwrap();
     assert!(p.app().store.active().is_none(), "aceito accepts the delivery");
 }
+
+#[test]
+fn the_action_budget_warns_without_blocking() {
+    let p = Project::new("budget");
+    let config = std::fs::read_to_string(p.root.join(".passo/passo.yaml")).unwrap();
+    std::fs::write(
+        p.root.join(".passo/passo.yaml"),
+        format!("{config}sizes:\n  m:\n    max_tool_calls: 3\n"),
+    )
+    .unwrap();
+    p.git(&["commit", "-qam", "budget"]);
+    p.app().start("Algo médio", None).unwrap();
+    let read = || {
+        p.hook(
+            HookEvent::PreToolUse,
+            tool(&p.root, "Read", serde_json::json!({"file_path": "src/lib.txt"})),
+        )
+    };
+    for _ in 0..3 {
+        assert_eq!(read(), None);
+    }
+    let warning = read().unwrap();
+    assert!(warning.contains("já foram 4 ações nesta etapa (limite 3)"), "{warning}");
+    assert!(!warning.contains("deny"), "{warning}");
+    let denied = p.hook(
+        HookEvent::PreToolUse,
+        tool(&p.root, "Write", serde_json::json!({"file_path": "src/x.txt"})),
+    );
+    assert!(denied.unwrap().contains("deny"), "the lock still denies");
+    let app = p.app();
+    let run = app.active().unwrap();
+    assert_eq!(
+        app.store
+            .log(&run.id)
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|e| e.kind == "step.budget")
+            .count(),
+        1
+    );
+}

@@ -36,6 +36,8 @@ pub struct Profile {
     pub max_rounds: u32,
     /// Failed attempts of a step before its next attempt asks for the strong tier (0 = never).
     pub escalate_after: u32,
+    /// Tool calls per step (per stage, outside build) before the agent is told to hand in or ask (0 = no limit).
+    pub max_tool_calls: u32,
 }
 
 impl Profile {
@@ -66,6 +68,7 @@ impl Profile {
                 max_rounds: 1,
                 // A small fix that fails is the wrong size, not the wrong model.
                 escalate_after: 0,
+                max_tool_calls: 30,
             },
             Size::P => Profile {
                 refinar: Mode::Agente,
@@ -80,6 +83,7 @@ impl Profile {
                 block_sensitive: false,
                 max_rounds: 2,
                 escalate_after: 1,
+                max_tool_calls: 60,
             },
             Size::M => Profile {
                 refinar: Mode::Agente,
@@ -94,6 +98,7 @@ impl Profile {
                 block_sensitive: false,
                 max_rounds: 2,
                 escalate_after: 1,
+                max_tool_calls: 80,
             },
             Size::G => Profile {
                 refinar: Mode::Agente,
@@ -108,6 +113,7 @@ impl Profile {
                 block_sensitive: false,
                 max_rounds: 3,
                 escalate_after: 1,
+                max_tool_calls: 120,
             },
         }
     }

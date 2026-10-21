@@ -107,6 +107,7 @@ sizes:
 | `max_files`, `max_lines`      | limites do diff, medidos pelo Passo (0 = sem limite; testes e `.md` não contam) |
 | `block_sensitive`             | tocar em `limits.sensitive` para o run                                    |
 | `max_rounds`                  | voltas da verificação antes de chamar o dev                               |
+| `max_tool_calls`              | ações do agente por passo (por etapa, fora de Construir) antes de o Passo avisar para entregar ou perguntar; o aviso não nega nada (0 = sem limite; padrões 30, 60, 80 e 120) |
 | `escalate_after`              | tentativas falhas de um passo antes de a próxima pedir o nível forte (0 = nunca; padrão 0 em `pp`, 1 nos outros). Cada agente de nível leve ganha um gêmeo `-forte` na instalação |
 
 ## Checklists de domínio

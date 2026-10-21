@@ -10,6 +10,7 @@ use passo_adapters::Usage;
 use passo_core::{Actor, Run, Stage};
 use passo_store::Event;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Tokens {
@@ -61,6 +62,8 @@ pub struct Metrics {
     pub invalid_outputs: u32,
     /// Steps that moved to the strong tier after the cheap one failed.
     pub escalations: u32,
+    /// Agent tool calls per build step.
+    pub tools_per_step: BTreeMap<String, u32>,
     pub tokens: Tokens,
     pub by_model: BTreeMap<String, Tokens>,
 }
@@ -112,7 +115,12 @@ pub fn compute(run: &Run, events: &[Event], usage: &[Usage], now: DateTime<Utc>)
         match event.kind.as_str() {
             "step.done" => m.steps_done += 1,
             "step.failed" => m.steps_failed += 1,
-            "tool" => m.tool_calls += 1,
+            "tool" => {
+                m.tool_calls += 1;
+                if let Some(step) = event.data.get("step").and_then(Value::as_str) {
+                    *m.tools_per_step.entry(step.to_string()).or_default() += 1;
+                }
+            }
             "lock.denied" => m.lock_denied += 1,
             "output.invalid" => m.invalid_outputs += 1,
             "step.escalated" => m.escalations += 1,

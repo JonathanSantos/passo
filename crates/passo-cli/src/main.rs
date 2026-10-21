@@ -415,6 +415,10 @@ fn stats(run: Option<String>, json: bool) -> Result<String> {
         m.invalid_outputs,
         m.escalations
     ));
+    if let Some((step, max)) = m.tools_per_step.iter().max_by_key(|(_, n)| **n) {
+        let avg = m.tools_per_step.values().sum::<u32>() as f64 / m.tools_per_step.len() as f64;
+        out.push_str(&format!("Ações por passo  média {avg:.0} · máximo {max} ({step})\n"));
+    }
     out.push_str("\nEtapa        tempo      tokens\n");
     for s in &m.stages {
         let Some(stage) = s.stage else { continue };
