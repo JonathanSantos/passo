@@ -1,0 +1,263 @@
+//! Configuration as plain data. Loading and `extends` live in the store; the engine only reads this.
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::model::{Size, Stage};
+
+/// Who does a stage: an agent, or Passo on its own (instantly, no tokens).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Agente,
+    Auto,
+}
+
+/// How a size runs the stages. Sizes change how deep each stage goes, never the order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Profile {
+    pub refinar: Mode,
+    pub planejar: Mode,
+    pub verificar: Mode,
+    /// Ask the dev to approve the plan. Open questions always reach the dev, whatever this says.
+    pub approve_plan: bool,
+    pub max_questions: usize,
+    pub max_steps: usize,
+    /// A step with a `teste` must change a test file.
+    pub require_tests: bool,
+    /// Diff limits checked by Passo (0 = no limit). Past them, the run stops and the dev decides.
+    pub max_files: usize,
+    pub max_lines: usize,
+    /// Touching a sensitive path stops the run.
+    pub block_sensitive: bool,
+    /// Times verify may send the run back to build before the dev is called.
+    pub max_rounds: u32,
+}
+
+impl Profile {
+    pub fn mode(&self, stage: Stage) -> Mode {
+        match stage {
+            Stage::Refinar => self.refinar,
+            Stage::Planejar => self.planejar,
+            Stage::Verificar => self.verificar,
+            // Building is always an agent's job; delivering is always Passo's, with the dev's acceptance.
+            Stage::Construir => Mode::Agente,
+            Stage::Entregar => Mode::Auto,
+        }
+    }
+
+    pub fn defaults(size: Size) -> Profile {
+        match size {
+            Size::Pp => Profile {
+                refinar: Mode::Auto,
+                planejar: Mode::Auto,
+                verificar: Mode::Auto,
+                approve_plan: false,
+                max_questions: 1,
+                max_steps: 1,
+                require_tests: false,
+                max_files: 3,
+                max_lines: 120,
+                block_sensitive: true,
+                max_rounds: 1,
+            },
+            Size::P => Profile {
+                refinar: Mode::Agente,
+                planejar: Mode::Agente,
+                verificar: Mode::Agente,
+                approve_plan: true,
+                max_questions: 3,
+                max_steps: 3,
+                require_tests: true,
+                max_files: 10,
+                max_lines: 400,
+                block_sensitive: false,
+                max_rounds: 2,
+            },
+            Size::M => Profile {
+                refinar: Mode::Agente,
+                planejar: Mode::Agente,
+                verificar: Mode::Agente,
+                approve_plan: true,
+                max_questions: 5,
+                max_steps: 6,
+                require_tests: true,
+                max_files: 0,
+                max_lines: 0,
+                block_sensitive: false,
+                max_rounds: 2,
+            },
+            Size::G => Profile {
+                refinar: Mode::Agente,
+                planejar: Mode::Agente,
+                verificar: Mode::Agente,
+                approve_plan: true,
+                max_questions: 8,
+                max_steps: 12,
+                require_tests: true,
+                max_files: 0,
+                max_lines: 0,
+                block_sensitive: false,
+                max_rounds: 3,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Checks {
+    /// After every build step: fast (typecheck, lint, unit tests of the area).
+    pub step: Vec<String>,
+    /// At verify: the full suite.
+    #[serde(rename = "final")]
+    pub final_: Vec<String>,
+    pub timeout_secs: u64,
+}
+
+impl Default for Checks {
+    fn default() -> Self {
+        Checks {
+            step: vec![],
+            final_: vec![],
+            timeout_secs: 600,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GitMode {
+    /// A branch per run; Passo commits each step.
+    Branch,
+    /// Work in place, no commits.
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Delivery {
+    /// Accepting merges the run branch back.
+    Merge,
+    /// Accepting leaves the branch for a pull request.
+    Keep,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Git {
+    pub mode: GitMode,
+    pub delivery: Delivery,
+}
+
+impl Default for Git {
+    fn default() -> Self {
+        Git {
+            mode: GitMode::Branch,
+            delivery: Delivery::Merge,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Limits {
+    /// Tries per step before the dev is called.
+    pub attempts: u32,
+    /// Globs that count as sensitive.
+    pub sensitive: Vec<String>,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Limits {
+            attempts: 3,
+            sensitive: [
+                "**/auth/**",
+                "**/migrations/**",
+                "**/*.sql",
+                ".github/**",
+                "**/.env*",
+                "**/payment*/**",
+                "**/secrets/**",
+            ]
+            .map(String::from)
+            .to_vec(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Tests {
+    /// Globs that count as test files.
+    pub patterns: Vec<String>,
+}
+
+impl Default for Tests {
+    fn default() -> Self {
+        Tests {
+            patterns: ["**/*test*", "**/*spec*", "**/tests/**", "**/test/**", "**/__tests__/**"]
+                .map(String::from)
+                .to_vec(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Config {
+    /// Other config files merged below this one (paths, or `preset:<name>`).
+    pub extends: Vec<String>,
+    /// Size when the agent does not say.
+    pub default_size: Size,
+    pub checks: Checks,
+    pub git: Git,
+    pub limits: Limits,
+    pub tests: Tests,
+    pub sizes: BTreeMap<Size, Profile>,
+    /// Model tiers the agents ask for (`leve`, `forte`), per platform: `{ leve = { claude = "haiku" } }`.
+    pub models: BTreeMap<String, BTreeMap<String, String>>,
+    /// Platforms installed in this project (`claude`, `copilot`).
+    pub platforms: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let tier = |claude: &str, copilot: &str| {
+            BTreeMap::from([
+                ("claude".to_string(), claude.to_string()),
+                ("copilot".to_string(), copilot.to_string()),
+            ])
+        };
+        Config {
+            extends: vec![],
+            default_size: Size::M,
+            checks: Checks::default(),
+            git: Git::default(),
+            limits: Limits::default(),
+            tests: Tests::default(),
+            sizes: Size::ALL.into_iter().map(|s| (s, Profile::defaults(s))).collect(),
+            models: BTreeMap::from([
+                ("leve".to_string(), tier("haiku", "Claude Haiku 5.5")),
+                ("forte".to_string(), tier("sonnet", "Claude Sonnet 5.5")),
+            ]),
+            platforms: vec![],
+        }
+    }
+}
+
+impl Config {
+    pub fn profile(&self, size: Size) -> Profile {
+        self.sizes
+            .get(&size)
+            .cloned()
+            .unwrap_or_else(|| Profile::defaults(size))
+    }
+
+    pub fn model(&self, tier: &str, platform: &str) -> Option<&str> {
+        self.models.get(tier).and_then(|m| m.get(platform)).map(String::as_str)
+    }
+}
