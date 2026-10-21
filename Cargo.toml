@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/JonathanSantos/passo"
+rust-version = "1.85"
+
+[workspace.dependencies]
+passo-core = { path = "crates/passo-core" }
+passo-store = { path = "crates/passo-store" }
+passo-app = { path = "crates/passo-app" }
+passo-adapters = { path = "crates/passo-adapters" }
+passo-web = { path = "crates/passo-web" }
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+clap = { version = "4", features = ["derive"] }
+globset = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tiny_http = "0.12"
+toml = "0.9"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"
