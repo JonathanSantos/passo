@@ -1,5 +1,7 @@
 # Spec: o mapa do projeto
 
+> **Estado: executada em 2026-10-21**, nos commits `mapa-00` a `mapa-06` da main. Não rode de novo; o texto fica como registro das decisões.
+
 Um agente explora o projeto (e os projetos anexados) e entrega um mapa: a estrutura, as áreas, as práticas, as bibliotecas e como cada uma é usada. O Passo guarda o mapa em Markdown, confere a validade dele pelo git, e injeta em cada etapa só a parte que interessa ao que o agente está atacando.
 
 O mapa é **opcional**. Sem ele, o Passo trabalha como hoje, com a árvore gerada (`repomap`). Com ele, a árvore dá lugar ao mapa nas etapas e o agente barato deixa de gastar tokens descobrindo onde as coisas estão.
