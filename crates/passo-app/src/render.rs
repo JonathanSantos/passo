@@ -151,7 +151,11 @@ fn context(view: &View) -> String {
                 .map(|s| format!("{} {}", s.id, s.title))
                 .collect();
             if !done.is_empty() {
-                list(&mut out, "Passos já feitos (ficam; planeje só o que falta)", &done);
+                list(
+                    &mut out,
+                    "Passos já feitos (os passos já feitos ficam no branch; os critérios novos precisam de passos novos ou de um passo \"conferir\" quando já estão atendidos)",
+                    &done,
+                );
             }
             checklists(view, &mut out);
         }
@@ -469,9 +473,22 @@ fn plan_overview(run: &Run, out: &mut String) {
             let _ = writeln!(out, "  {} {}", c.id, c.text);
         }
     }
-    if !run.steps.is_empty() {
+    let legacy: Vec<&passo_core::Step> = run.steps.iter().filter(|s| s.legacy).collect();
+    if !legacy.is_empty() {
+        out.push_str("Passos de planos anteriores (ficam, sem critério):\n");
+        for s in legacy {
+            let summary = if s.summary.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", s.summary)
+            };
+            let _ = writeln!(out, "  ✓ {} {}{summary}", s.id, s.title);
+        }
+    }
+    let current: Vec<&passo_core::Step> = run.steps.iter().filter(|s| !s.legacy).collect();
+    if !current.is_empty() {
         out.push_str("Passos:\n");
-        for s in &run.steps {
+        for s in current {
             let mark = match s.status {
                 StepStatus::Done => "✓",
                 StepStatus::Doing => "▸",
@@ -508,7 +525,7 @@ fn criteria_map(run: &Run) -> Vec<String> {
             let steps: Vec<String> = run
                 .steps
                 .iter()
-                .filter(|s| s.criteria.contains(&c.id))
+                .filter(|s| !s.legacy && s.criteria.contains(&c.id))
                 .map(|s| match &s.commit {
                     Some(hash) => format!("{} [{}]", s.id, &hash[..hash.len().min(7)]),
                     None => s.id.clone(),

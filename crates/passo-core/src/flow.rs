@@ -340,21 +340,19 @@ impl<'a> Engine<'a> {
         if !refused.is_empty() {
             return Err(FlowError::Invalid(Invalid(refused)));
         }
-        // On a re-plan the steps already done keep meeting criteria under the old numbering, so only a first plan
-        // is held to "every criterion has a step".
-        if !run.steps.iter().any(|s| s.status == StepStatus::Done) {
-            let orphans: Vec<String> = (1..=plan.criteria.len())
-                .map(|n| format!("C{n}"))
-                .filter(|id| !plan.steps.iter().any(|s| s.criteria.contains(id)))
-                .map(|id| {
-                    format!(
-                        "o critério {id} não tem passo que o atenda; acrescente um passo ou junte {id} a outro critério"
-                    )
-                })
-                .collect();
-            if !orphans.is_empty() {
-                return Err(FlowError::Invalid(Invalid(orphans)));
-            }
+        // Every criterion needs a step of this plan: on a re-plan, steps already done no longer meet criteria (their
+        // numbering is gone), so a criterion they already meet gets a "conferir" step.
+        let orphans: Vec<String> = (1..=plan.criteria.len())
+            .map(|n| format!("C{n}"))
+            .filter(|id| !plan.steps.iter().any(|s| s.criteria.contains(id)))
+            .map(|id| {
+                format!(
+                    "o critério {id} não tem passo que o atenda; acrescente um passo ou junte {id} a outro critério"
+                )
+            })
+            .collect();
+        if !orphans.is_empty() {
+            return Err(FlowError::Invalid(Invalid(orphans)));
         }
         run.feedback = None;
         self.accept_plan(run, plan, Actor::Agent, out, now);
@@ -375,7 +373,18 @@ impl<'a> Engine<'a> {
                 after: Some(print.clone()),
             });
         }
-        let done: Vec<Step> = run.steps.drain(..).filter(|s| s.status == StepStatus::Done).collect();
+        // Steps done under an earlier plan stay (their work is on the branch) but lose their link to criteria: the
+        // criteria were replaced and renumbered, and C1 now may mean something those steps never met.
+        let done: Vec<Step> = run
+            .steps
+            .drain(..)
+            .filter(|s| s.status == StepStatus::Done)
+            .map(|mut s| {
+                s.criteria.clear();
+                s.legacy = true;
+                s
+            })
+            .collect();
         let offset = done.len();
         run.steps = done;
         run.steps.extend(plan.steps.iter().enumerate().map(|(i, s)| Step {
@@ -387,6 +396,7 @@ impl<'a> Engine<'a> {
             criteria: s.criteria.clone(),
             test_command: s.test_command.clone(),
             tier: None,
+            legacy: false,
             status: StepStatus::Todo,
             attempts: 0,
             fix: false,
@@ -1119,6 +1129,7 @@ fn add_fix_steps(run: &mut Run, fixes: Vec<Fix>) {
             criteria: fix.criteria,
             test_command: fix.test_command,
             tier: None,
+            legacy: false,
             status: StepStatus::Todo,
             attempts: 0,
             fix: true,

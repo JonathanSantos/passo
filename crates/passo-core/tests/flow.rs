@@ -593,3 +593,53 @@ fn pp_never_escalates() {
     sim.apply(Command::StepDone(bad)).unwrap();
     assert_eq!(sim.run.current_step().unwrap().tier, None);
 }
+
+#[test]
+fn a_replan_unlinks_done_steps_from_the_new_criteria() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    sim.apply(Command::SubmitBrief(parse_brief(BRIEF, 1).unwrap())).unwrap();
+    sim.apply(Command::SubmitPlan(parse_plan(PLAN_WITH_COMMAND).unwrap()))
+        .unwrap();
+    sim.apply(Command::Approve(Decision::default())).unwrap();
+    sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
+        .unwrap();
+    sim.apply(Command::Change("exportar em CSV também".into())).unwrap();
+    sim.apply(Command::SubmitBrief(parse_brief(BRIEF, 2).unwrap())).unwrap();
+
+    let orphan = r#"{"titulo":"v2","criterios":["exporta","tem prioridade"],"passos":[{"titulo":"Exportar","criterios":["C1"]}]}"#;
+    let err = sim
+        .apply(Command::SubmitPlan(parse_plan(orphan).unwrap()))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("o critério C2 não tem passo que o atenda"),
+        "the orphan rule holds on a re-plan: {err}"
+    );
+
+    let plan = r#"{"titulo":"v2","criterios":["exporta","tem prioridade"],
+      "passos":[{"titulo":"Exportar","criterios":["C1"],"teste":"csv"},{"titulo":"Conferir a prioridade","criterios":["C2"]}]}"#;
+    sim.apply(Command::SubmitPlan(parse_plan(plan).unwrap())).unwrap();
+    sim.apply(Command::Approve(Decision::default())).unwrap();
+    let s1 = &sim.run.steps[0];
+    assert!(s1.criteria.is_empty() && s1.legacy, "{s1:?}");
+    assert_eq!(
+        s1.test_command, "cargo test task::",
+        "the work and its command stay on record"
+    );
+
+    sim.apply(Command::StepDone(facts(&["src/csv.rs", "tests/csv.rs"], true)))
+        .unwrap();
+    sim.apply(Command::StepDone(facts(&["src/task.rs"], false))).unwrap();
+    let failing =
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"ok"},{"id":"C2","ok":false,"evidencia":"falta"}]}"#;
+    sim.apply(Command::SubmitReview(
+        parse_review(failing, &["C1".into(), "C2".into()], &[]).unwrap(),
+    ))
+    .unwrap();
+    assert_eq!(
+        sim.run.current_step().unwrap().test_command,
+        "",
+        "a fix does not inherit from a legacy step"
+    );
+}
