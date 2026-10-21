@@ -174,12 +174,6 @@ fn context(view: &View) -> String {
                 let _ = writeln!(out, "Passo anterior: ✓ {} {}{summary}", previous.id, previous.title);
             }
             if let Some(step) = run.current_step() {
-                if step.criteria.is_empty() && !run.criteria.is_empty() {
-                    out.push_str("Critérios de aceite:\n");
-                    for c in &run.criteria {
-                        let _ = writeln!(out, "  {} {}", c.id, c.text);
-                    }
-                }
                 let _ = writeln!(out, "\nPasso da vez: {} · {}", step.id, step.title);
                 if !step.detail.is_empty() {
                     let _ = writeln!(out, "Detalhe: {}", step.detail);
@@ -219,6 +213,13 @@ fn context(view: &View) -> String {
                         step.attempts + 1,
                         view.config.limits.attempts
                     );
+                }
+                // A step that names no criterion is read against all of them, next to the step.
+                if step.criteria.is_empty() && !run.criteria.is_empty() {
+                    out.push_str("Critérios de aceite:\n");
+                    for c in &run.criteria {
+                        let _ = writeln!(out, "  {} {}", c.id, c.text);
+                    }
                 }
             }
             let mut checks = view.config.checks.step.clone();
@@ -556,23 +557,17 @@ fn builder_notes(run: &Run) -> Vec<String> {
         done.iter()
             .any(|id| note.starts_with(&format!("{id}:")) || note.starts_with(&format!("{id} ")))
     };
+    let recent = run.notes.len().saturating_sub(5);
+    // One pass in the order the notes were written: no duplicates, and the newest kept when there are too many.
     let mut picked: Vec<String> = vec![];
-    let add = |note: &String, picked: &mut Vec<String>| {
-        if !picked.contains(note) {
+    for (i, note) in run.notes.iter().enumerate() {
+        let about_this_step = from_done(note) && step.files.iter().any(|f| note.contains(f.as_str()));
+        if (about_this_step || note.starts_with("Revisão:") || i >= recent) && !picked.contains(note) {
             picked.push(note.clone());
         }
-    };
-    for note in &run.notes {
-        let about_this_step = from_done(note) && step.files.iter().any(|f| note.contains(f.as_str()));
-        if about_this_step || note.starts_with("Revisão:") {
-            add(note, &mut picked);
-        }
     }
-    for note in run.notes.iter().rev().take(5) {
-        add(note, &mut picked);
-    }
-    picked.truncate(MAX);
-    picked
+    let skip = picked.len().saturating_sub(MAX);
+    picked.split_off(skip)
 }
 
 /// The selected part of the project map: the project, the areas with what they depend on, the libs, and the

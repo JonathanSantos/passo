@@ -521,11 +521,17 @@ fn the_builder_sees_only_its_neighbourhood() {
 
     let app = p.app();
     let mut run = app.active().unwrap();
-    run.notes = (1..=12).map(|i| format!("nota {i}")).collect();
+    run.notes = (1..=12).map(|i| format!("Revisão: nota {i:02}")).collect();
     app.store.save(&run).unwrap();
     let out = p.app().next().unwrap();
-    let shown = out.lines().filter(|l| l.starts_with("- nota ")).count();
-    assert!(shown <= 10 && shown > 0, "{shown} notes: {out}");
+    let shown: Vec<&str> = out.lines().filter(|l| l.starts_with("- Revisão: nota ")).collect();
+    assert_eq!(shown.len(), 10, "{out}");
+    assert_eq!(
+        shown.first(),
+        Some(&"- Revisão: nota 03"),
+        "the newest ten, oldest first"
+    );
+    assert_eq!(shown.last(), Some(&"- Revisão: nota 12"));
 }
 
 #[test]
