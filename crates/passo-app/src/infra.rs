@@ -122,6 +122,15 @@ impl Git {
         self.output(&["rev-parse", "HEAD"]).ok()
     }
 
+    /// When a commit was made, in seconds since the epoch.
+    pub fn commit_time(&self, commit: &str) -> Option<i64> {
+        self.output(&["show", "-s", "--format=%ct", commit])
+            .ok()?
+            .trim()
+            .parse()
+            .ok()
+    }
+
     pub fn branch(&self) -> Option<String> {
         self.output(&["rev-parse", "--abbrev-ref", "HEAD"])
             .ok()

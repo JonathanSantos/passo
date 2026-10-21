@@ -7,6 +7,7 @@
 //!   agents/<nome>.md    agent overrides and new agents
 //!   stages/<etapa>.md   how a stage is done in this project
 //!   checklists/*.md     domain checklists for planning and review
+//!   map/                the project map an exploring agent writes (optional, in git)
 //!   current             id of the active run
 //!   runs/<id>/          run.json, events.jsonl, plan-v<N>.json, tree.md, sessions.json, report.html (not in git)
 //!   audit/<id>/         the log and the plans as they were when the run ended, committed on the run's branch
@@ -44,6 +45,10 @@ impl Layout {
     }
     pub fn config(&self) -> PathBuf {
         self.passo().join(crate::config::FILE)
+    }
+    /// The project map (in git, unlike `runs/`).
+    pub fn project_map(&self) -> PathBuf {
+        self.passo().join("map")
     }
     pub fn context(&self) -> PathBuf {
         self.passo().join("context.md")

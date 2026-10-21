@@ -372,6 +372,30 @@ impl App {
         self.store.log(&run.id).append(&run.id, &[event], self.clock.now()).ok();
     }
 
+    /// One line about the project map for `doctor`: none yet, its size and age, or why it was ignored.
+    pub fn map_summary(&self) -> String {
+        match passo_store::map::load(&self.layout) {
+            Ok(None) => "nenhum (opcional: peça ao agente \"com o passo, mapeie o projeto\")".into(),
+            Err(e) => format!("ignorado: {e}"),
+            Ok(Some(map)) => {
+                let commit = map.project.iter().chain(&map.areas).find_map(|n| n.commit.clone());
+                let made = match &commit {
+                    Some(c) => {
+                        let days = self
+                            .git()
+                            .commit_time(c)
+                            .map(|t| (self.clock.now().timestamp() - t).max(0) / 86_400)
+                            .map(|d| format!(" ({d} dias)"))
+                            .unwrap_or_default();
+                        format!(" · feito em {}{days}", &c[..c.len().min(7)])
+                    }
+                    None => String::new(),
+                };
+                format!("{} áreas · {} libs{made}", map.areas.len(), map.libs.len())
+            }
+        }
+    }
+
     /// One screen for the dev: where the run is and what it waits for.
     pub fn status_text(&self) -> String {
         let Some(run) = self.store.latest() else {

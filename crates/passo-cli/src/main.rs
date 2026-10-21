@@ -582,6 +582,7 @@ fn doctor() -> Result<String> {
             "vazio (preencha .passo/context.md)"
         }
     ));
+    out.push_str(&format!("Mapa do projeto: {}\n", app.map_summary()));
     if let Some(run) = app.store.latest() {
         let verdict = match app.verify_audit(&run)? {
             Ok(n) => format!("✓ {n} eventos íntegros"),

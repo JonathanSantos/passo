@@ -18,6 +18,7 @@ Para acrescentar comportamento (um agente novo, uma etapa feita de outro jeito, 
 | trazer um checklist do domínio               | `.passo/checklists/<nome>.md`        |
 | mudar quem faz cada etapa num tamanho        | `.passo/passo.yaml` → `sizes.<t>`    |
 | trocar o modelo de um nível                  | `.passo/passo.yaml` → `models`       |
+| dizer aos agentes como o projeto é organizado | `.passo/map/` (o mapa do projeto)   |
 
 Depois de mexer em agentes, rode `passo sync`: ele reescreve os arquivos de cada plataforma (`.claude/agents`, `.github/agents`). `passo doctor` mostra de onde veio cada coisa.
 
@@ -108,7 +109,45 @@ sizes:
 | `block_sensitive`             | tocar em `limits.sensitive` para o run                                    |
 | `max_rounds`                  | voltas da verificação antes de chamar o dev                               |
 | `max_tool_calls`              | ações do agente por passo (por etapa, fora de Construir) antes de o Passo avisar para entregar ou perguntar; o aviso não nega nada (0 = sem limite; padrões 30, 60, 80 e 120) |
+| `map_lines`                   | linhas do mapa do projeto que cada etapa lê: `{ refinar, planejar, construir, verificar }` (`0` desliga a etapa; padrão 0 em `pp` e 60, 120, 60 e 100 nos outros) |
 | `escalate_after`              | tentativas falhas de um passo antes de a próxima pedir o nível forte (0 = nunca; padrão 0 em `pp`, 1 nos outros). Cada agente de nível leve ganha um gêmeo `-forte` na instalação |
+
+## O mapa do projeto
+
+Um agente explora o projeto e entrega um mapa: a estrutura, as áreas, as práticas, as bibliotecas e como cada uma é usada. O Passo guarda o mapa em `.passo/map/`, no git, e mostra a cada etapa só a parte que interessa ao que ela está fazendo. O mapa é opcional: sem ele, o Passo mostra a árvore de pastas que ele mesmo gera.
+
+```text
+.passo/map/
+  projeto.md         stack, como rodar, como testar, as convenções que mais importam
+  areas/<id>.md      uma por área (módulo, camada, pasta com responsabilidade própria)
+  libs/<nome>.md     uma por biblioteca que o projeto envolve de um jeito próprio
+```
+
+Uma área:
+
+```markdown
+---
+paths: [src/tasks.js, src/cli.js]
+depends_on: [armazenamento]
+libs: [commander]
+tags: [cli, tarefas]
+sources: [src/tasks.js, test/tasks.test.js]
+commit: "7033609"
+---
+Regras de negócio das tarefas. Cada comando da CLI chama uma função pura daqui.
+Testes em `test/tasks.test.js`, com `node:test`, um `describe` por comando, sem mock do disco.
+```
+
+| Campo        | O que é                                                              |
+| ------------ | -------------------------------------------------------------------- |
+| `paths`      | globs relativos à raiz do projeto: os arquivos que a área cobre      |
+| `depends_on` | ids de outras áreas                                                  |
+| `libs`       | bibliotecas que a área usa (cada uma pode ter o seu `libs/<nome>.md`) |
+| `tags`       | palavras que trazem a área quando aparecem num pedido                |
+| `sources`    | arquivos que sustentam o que o corpo afirma                          |
+| `commit`     | commit em que a área foi escrita ou confirmada (entre aspas)         |
+
+O `projeto.md` aceita `sources` e `commit`; uma lib, `tags`, `sources` e `commit`. Chave desconhecida ou `depends_on` para área que não existe dão erro com o arquivo e a linha. Edite à mão à vontade: o que o Passo confere a mais é o que o agente entrega com `passo map`. O `context.md` continua acima do mapa: é o que você escreve e o mapa não substitui. `passo doctor` diz se há mapa, quantas áreas e de quando ele é.
 
 ## Checklists de domínio
 
