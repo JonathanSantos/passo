@@ -102,6 +102,19 @@ pub struct Review {
     pub criteria: Vec<ReviewItem>,
     #[serde(default)]
     pub notes: Vec<String>,
+    /// Whether each project map area the reviewer was shown still describes the code after this run.
+    #[serde(default)]
+    pub map: Vec<MapCheck>,
+}
+
+/// The reviewer's word on one area of the project map.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapCheck {
+    pub id: String,
+    pub ok: bool,
+    /// What changed, when `ok` is false.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
 }
 
 /// One line per problem, in the words the agent should read.
@@ -392,8 +405,8 @@ fn criterion_refs(r: &mut Reader, at: &Value, path: &str, count: usize) -> Vec<S
     out
 }
 
-/// Parses the review and checks that it answers every criterion, and nothing else.
-pub fn parse_review(text: &str, criteria: &[String]) -> Result<Review, Invalid> {
+/// Parses the review and checks that it answers every criterion (and every map area shown), and nothing else.
+pub fn parse_review(text: &str, criteria: &[String], map_areas: &[String]) -> Result<Review, Invalid> {
     let root = extract_json(text)?;
     if !root.is_object() {
         return Err(Invalid(vec!["a revisão deve ser um objeto JSON".into()]));
@@ -428,7 +441,41 @@ pub fn parse_review(text: &str, criteria: &[String]) -> Result<Review, Invalid> 
             ));
         }
     }
-    r.finish(Review { criteria: items, notes })
+    let mut map = vec![];
+    for (i, m) in r.objects(&root, "", "mapa", false).into_iter().enumerate() {
+        let path = format!("mapa[{i}]");
+        let id = r.text(m, &path, "id", true);
+        let ok = match m.get("ok") {
+            Some(Value::Bool(b)) => *b,
+            _ => {
+                r.errors.push(format!("`{path}.ok` deve ser true ou false"));
+                true
+            }
+        };
+        let note = r.text(m, &path, "nota", false);
+        if !ok && note.is_empty() {
+            r.errors.push(format!(
+                "`{path}.nota` deve dizer o que mudou na área quando `ok` é false"
+            ));
+        }
+        if !id.is_empty() && !map_areas.contains(&id) {
+            r.errors.push(format!(
+                "a área `{id}` não foi mostrada nesta revisão; use só {}",
+                map_areas.join(", ")
+            ));
+        }
+        map.push(MapCheck { id, ok, note });
+    }
+    for id in map_areas {
+        if !map.iter().any(|m| &m.id == id) {
+            r.errors.push(format!("falta a área {id} em `mapa`"));
+        }
+    }
+    r.finish(Review {
+        criteria: items,
+        notes,
+        map,
+    })
 }
 
 /// Something a review cites as proof: a path (maybe with a line), or a test name in backticks.
@@ -573,6 +620,11 @@ pub const PLAN_TEMPLATE: &str = r#"{
   ],
   "notas": "decisões de design (opcional)"
 }"#;
+
+/// The `mapa` part of a review, shown only when the reviewer was given map areas.
+pub const REVIEW_MAP_TEMPLATE: &str = r#""mapa": [
+    { "id": "tarefas", "ok": true, "nota": "" }
+  ]"#;
 
 pub const REVIEW_TEMPLATE: &str = r#"{
   "criterios": [
@@ -947,6 +999,7 @@ mod tests {
         let err = parse_review(
             "{\"criterios\":[{\"id\":\"c1\",\"ok\":true,\"evidencia\":\"teste x\"}]}",
             &criteria,
+            &[],
         )
         .unwrap_err();
         assert_eq!(err.0, vec!["falta o critério C2 em `criterios`".to_string()]);

@@ -747,3 +747,126 @@ fn a_broken_map_is_a_warning_and_the_lock_still_works() {
     );
     assert!(denied.unwrap().contains("só leitura"));
 }
+
+/// The three-area map, every node stamped with the current HEAD, committed.
+fn write_dated_map(p: &Project) -> String {
+    let head = p.git(&["rev-parse", "HEAD"]);
+    let area = |id: &str, paths: &str, tags: &str| {
+        p.write(
+            &format!(".passo/map/areas/{id}.md"),
+            &format!("---\npaths: [{paths}]\ntags: [{tags}]\ncommit: \"{head}\"\n---\nA área {id}.\n"),
+        );
+    };
+    p.write(
+        ".passo/map/projeto.md",
+        &format!("---\ncommit: \"{head}\"\n---\nStack: texto puro\n"),
+    );
+    area("tarefas", "src/lib.txt", "tarefas");
+    area("relatorios", "src/rel/**", "relatório");
+    area("infra", "deploy/**", "deploy");
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-qm", "mapa"]);
+    head
+}
+
+#[test]
+fn the_map_ages_by_git() {
+    let p = Project::new("map-stale");
+    write_dated_map(&p);
+    p.write("src/lib.txt", "mudou\n");
+    p.git(&["commit", "-qam", "muda tarefas"]);
+    let app = p.app();
+    let stale = app.map_staleness(app.map.as_ref().unwrap().as_ref().unwrap()).unwrap();
+    let changed: Vec<(String, bool)> = stale.areas.clone();
+    assert!(
+        changed.contains(&("tarefas".into(), true)) && changed.contains(&("relatorios".into(), false)),
+        "{changed:?}"
+    );
+    assert!(!stale.worth_remapping(), "one of three is not past a third");
+    let out = p.app().start("Algo", None).unwrap();
+    assert!(!out.contains("Mapa do projeto feito em"), "{out}");
+    stop_run(&p);
+    p.write("package.json", "{}\n");
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-qm", "manifesto"]);
+    let out = p.app().start("Algo", None).unwrap();
+    assert!(
+        out.starts_with("Mapa do projeto feito em") && out.contains("os manifestos mudaram"),
+        "{out}"
+    );
+}
+
+fn stop_run(p: &Project) {
+    p.app().decide(DevAction::Stop(String::new()), Source::Cli).unwrap();
+}
+
+/// Starts a p run on the dated map, builds one step on src/lib.txt and stops at the review.
+fn to_map_review(p: &Project) {
+    p.app().start("Mudar as tarefas", Some(passo_core::Size::P)).unwrap();
+    let brief = p.draft(
+        "brief-rev",
+        r#"{"entendimento":"x","escopo":["a"],"arquivos":["src/lib.txt"]}"#,
+    );
+    p.done(&brief);
+    let plan = p.draft("plan-rev", r#"{"titulo":"T","criterios":["mudou"],"passos":[{"titulo":"S","arquivos":["src/lib.txt"],"criterios":["C1"]}]}"#);
+    p.done(&plan);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    p.write("src/lib.txt", "tarefas com prioridade\n");
+    let out = p.done("mudou");
+    assert!(
+        out.contains("Inclua também `mapa`") && out.contains("(tarefas)"),
+        "{out}"
+    );
+}
+
+#[test]
+fn the_review_confirms_the_map_and_delivery_dates_it() {
+    let p = Project::new("map-confirm");
+    let head = write_dated_map(&p);
+    to_map_review(&p);
+    let missing = p.draft(
+        "rev-nomap",
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"src/lib.txt:1"}]}"#,
+    );
+    let err = p
+        .app()
+        .done(DoneInput {
+            text: missing,
+            ..Default::default()
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("falta a área tarefas em `mapa`"), "{err}");
+    let ok = p.draft(
+        "rev-map",
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"src/lib.txt:1"}],"mapa":[{"id":"tarefas","ok":true}]}"#,
+    );
+    p.done(&ok);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    let map = passo_store::map::load(&p.app().layout).unwrap().unwrap();
+    let commit = |id: &str| map.areas.iter().find(|a| a.id == id).unwrap().commit.clone().unwrap();
+    assert_ne!(commit("tarefas"), head, "a confirmed area gets the run's last commit");
+    assert_eq!(commit("relatorios"), head);
+    assert!(p.git(&["log", "--oneline"]).contains("log de auditoria e mapa"));
+}
+
+#[test]
+fn an_area_the_review_flags_keeps_its_commit_and_gets_a_note() {
+    let p = Project::new("map-flag");
+    let head = write_dated_map(&p);
+    to_map_review(&p);
+    let flagged = p.draft(
+        "rev-flag",
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"src/lib.txt:1"}],"mapa":[{"id":"tarefas","ok":false,"nota":"agora as tarefas têm prioridade"}]}"#,
+    );
+    p.done(&flagged);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    let map = passo_store::map::load(&p.app().layout).unwrap().unwrap();
+    let tarefas = map.areas.iter().find(|a| a.id == "tarefas").unwrap();
+    assert_eq!(tarefas.commit.as_deref(), Some(head.as_str()));
+    assert!(
+        tarefas.body.contains("## Anotações") && tarefas.body.contains("agora as tarefas têm prioridade"),
+        "{}",
+        tarefas.body
+    );
+}

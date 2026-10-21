@@ -651,6 +651,7 @@ impl<'a> Engine<'a> {
                 "a revisão só é entregue em Verificar, depois das checagens finais".into(),
             ));
         }
+        run.map_checks = review.map.clone();
         for item in &review.criteria {
             if let Some(criterion) = run.criteria.iter_mut().find(|c| c.id == item.id) {
                 criterion.ok = Some(item.ok);

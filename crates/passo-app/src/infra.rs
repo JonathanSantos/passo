@@ -174,6 +174,29 @@ impl Git {
             .collect())
     }
 
+    /// Files under `paths` (globs) that changed between `from` and HEAD. An unknown commit is an error.
+    pub fn changed_between(&self, from: &str, paths: &[String]) -> Result<Vec<String>> {
+        let mut args = vec![
+            "diff".to_string(),
+            "--name-only".into(),
+            from.to_string(),
+            "HEAD".into(),
+            "--".into(),
+        ];
+        args.extend(paths.iter().map(|p| format!(":(glob){p}")));
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        Ok(self.output(&args)?.lines().map(str::to_string).collect())
+    }
+
+    /// Top-level names in a commit's tree.
+    pub fn top_level(&self, commit: &str) -> Result<Vec<String>> {
+        Ok(self
+            .output(&["ls-tree", "--name-only", commit])?
+            .lines()
+            .map(str::to_string)
+            .collect())
+    }
+
     /// Files that differ between `base` and the working tree (committed or not).
     pub fn changed_since(&self, base: &str) -> Result<Vec<String>> {
         Ok(self

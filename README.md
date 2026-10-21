@@ -147,6 +147,8 @@ Agentes, etapas, checklists de domínio, tamanhos e modelos: veja [`docs/EXTENDE
 
 A cada etapa, o Passo mostra só a parte do mapa que interessa: em Refinar, as áreas citadas no pedido; em Planejar, as que cobrem os arquivos do pedido, mais as que elas usam; em Construir, só a área do passo. O mapa é opcional: sem ele, o Passo mostra a árvore de pastas que ele mesmo gera.
 
+O mapa tem validade pelo git, não por data: cada área guarda o commit em que foi escrita. No `start`, o Passo avisa quando os manifestos mudaram ou mais de um terço das áreas mudou desde então. Na verificação, o revisor confirma as áreas que recebeu; na entrega, as confirmadas ganham o commit novo e as que ele disse que mudaram ganham uma anotação. `passo doctor` mostra o que envelheceu.
+
 ## Simulação com modelos baratos
 
 O mesmo pedido de tamanho `m` no projeto de exemplo ([`examples/tarefas`](examples/tarefas)), conduzido de ponta a ponta por um agente que só conhecia a skill do Passo. O dev seguiu uma regra fixa: aprovar as recomendadas e aceitar a entrega se as checagens passassem. As entregas foram julgadas por uma suíte de aceite escondida, que nenhum agente viu.

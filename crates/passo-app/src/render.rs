@@ -293,10 +293,28 @@ fn hand_in(view: &View) -> String {
         ),
         Stage::Verificar => {
             let ids: Vec<&str> = run.criteria.iter().map(|c| c.id.as_str()).collect();
-            format!(
+            let areas: Vec<&str> = view
+                .map
+                .map(|s| {
+                    s.nodes
+                        .iter()
+                        .filter(|n| n.kind == passo_core::map::NodeKind::Area)
+                        .map(|n| n.id.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut out = format!(
                 "Um item por critério ({}). Escreva o JSON num arquivo temporário e rode `{bin} done <arquivo>`.\n\n```json\n{REVIEW_TEMPLATE}\n```\n",
                 ids.join(", ")
-            )
+            );
+            if !areas.is_empty() {
+                out.push_str(&format!(
+                    "\nInclua também `mapa`, um item por área do mapa que você recebeu ({}): a descrição dela continua certa depois deste run? Com `ok: false`, diga em `nota` o que mudou.\n\n```json\n{}\n```\n",
+                    areas.join(", "),
+                    passo_core::spec::REVIEW_MAP_TEMPLATE
+                ));
+            }
+            out
         }
         Stage::Entregar => String::new(),
     }
@@ -625,6 +643,8 @@ pub struct MapView<'a> {
     pub tree: &'a str,
     /// The map as it is, so the explorer updates it instead of starting over.
     pub current: Option<&'a passo_core::map::Map>,
+    /// Areas that changed since they were written: the ones to look at first.
+    pub changed: &'a [String],
     pub template: &'a str,
     pub bin: &'a str,
 }
@@ -651,7 +671,12 @@ pub fn map_task(view: &MapView) -> String {
     if let Some(map) = view.current {
         out.push_str("## O mapa atual (atualize o que mudou, mantenha o resto)\n");
         for area in &map.areas {
-            let _ = writeln!(out, "- {} ({})", area.id, area.paths.join(", "));
+            let mark = if view.changed.contains(&area.id) {
+                " · mudou desde que foi escrita"
+            } else {
+                ""
+            };
+            let _ = writeln!(out, "- {} ({}){mark}", area.id, area.paths.join(", "));
         }
         for lib in &map.libs {
             let _ = writeln!(out, "- lib {}", lib.id);

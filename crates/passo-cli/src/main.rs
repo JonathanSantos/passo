@@ -594,6 +594,16 @@ fn doctor() -> Result<String> {
         }
     ));
     out.push_str(&format!("Mapa do projeto: {}\n", app.map_summary()));
+    if let Ok(Some(map)) = &app.map
+        && let Some(stale) = app.map_staleness(map)
+    {
+        for (id, changed) in &stale.areas {
+            out.push_str(&format!("  {} {id}\n", if *changed { "mudou" } else { "✓" }));
+        }
+        if stale.worth_remapping() {
+            out.push_str("  O mapa envelheceu: vale pedir ao agente para rodar passo map.\n");
+        }
+    }
     if let Some(run) = app.store.latest() {
         let verdict = match app.verify_audit(&run)? {
             Ok(n) => format!("✓ {n} eventos íntegros"),

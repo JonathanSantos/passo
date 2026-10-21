@@ -357,6 +357,9 @@ pub struct Run {
     pub workspace: Option<Workspace>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proof: Option<Proof>,
+    /// The reviewer's word on the project map areas it was shown; applied to the map on delivery.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub map_checks: Vec<crate::spec::MapCheck>,
 }
 
 impl Run {
@@ -386,6 +389,7 @@ impl Run {
             changes: vec![],
             workspace: None,
             proof: None,
+            map_checks: vec![],
         }
     }
 

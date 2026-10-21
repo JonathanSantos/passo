@@ -157,8 +157,7 @@ fn standard_flow_with_recommended_answers() {
     assert!(sim.run.reviewing);
     let review = parse_review(
         r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"task_test"},{"id":"C2","ok":true,"evidencia":"filter_test"}]}"#,
-        &["C1".into(), "C2".into()],
-    )
+        &["C1".into(), "C2".into()], &[])
     .unwrap();
     sim.apply(Command::SubmitReview(review)).unwrap();
     assert_eq!(sim.gate(), GateKind::Aceitar);
@@ -273,7 +272,7 @@ fn review_failures_become_fix_steps_until_the_round_limit() {
     let failing = r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"ok"},{"id":"C2","ok":false,"evidencia":"sem filtro vazio"}]}"#;
     let criteria = vec!["C1".to_string(), "C2".to_string()];
     for round in 1..=2 {
-        sim.apply(Command::SubmitReview(parse_review(failing, &criteria).unwrap()))
+        sim.apply(Command::SubmitReview(parse_review(failing, &criteria, &[]).unwrap()))
             .unwrap();
         assert_eq!(sim.run.stage, Stage::Construir);
         assert!(sim.run.current_step().unwrap().fix);
@@ -285,7 +284,7 @@ fn review_failures_become_fix_steps_until_the_round_limit() {
         sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/c.rs"], true)))
             .unwrap();
     }
-    sim.apply(Command::SubmitReview(parse_review(failing, &criteria).unwrap()))
+    sim.apply(Command::SubmitReview(parse_review(failing, &criteria, &[]).unwrap()))
         .unwrap();
     assert_eq!(sim.gate(), GateKind::Travado);
     assert_eq!(sim.run.stage, Stage::Construir);
@@ -310,6 +309,7 @@ fn proof_counts_final_checks_wherever_they_were_configured() {
     let review = parse_review(
         r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"a"},{"id":"C2","ok":true,"evidencia":"b"}]}"#,
         &["C1".into(), "C2".into()],
+        &[],
     )
     .unwrap();
     sim.apply(Command::SubmitReview(review)).unwrap();
@@ -418,7 +418,7 @@ fn steps_keep_their_criteria_and_review_fixes_carry_the_failed_one() {
     let failing =
         r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"ok"},{"id":"C2","ok":false,"evidencia":"falta"}]}"#;
     sim.apply(Command::SubmitReview(
-        parse_review(failing, &["C1".into(), "C2".into()]).unwrap(),
+        parse_review(failing, &["C1".into(), "C2".into()], &[]).unwrap(),
     ))
     .unwrap();
     assert_eq!(sim.run.current_step().unwrap().criteria, vec!["C2"]);
@@ -447,8 +447,10 @@ fn the_test_command_reaches_the_step_and_review_fixes_inherit_it() {
     sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
         .unwrap();
     let failing = r#"{"criterios":[{"id":"C1","ok":false,"evidencia":"falta o padrão"}]}"#;
-    sim.apply(Command::SubmitReview(parse_review(failing, &["C1".into()]).unwrap()))
-        .unwrap();
+    sim.apply(Command::SubmitReview(
+        parse_review(failing, &["C1".into()], &[]).unwrap(),
+    ))
+    .unwrap();
     assert_eq!(sim.run.current_step().unwrap().test_command, "cargo test task::");
 }
 

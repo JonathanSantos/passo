@@ -82,12 +82,18 @@ impl App {
             usize::MAX,
         );
         let current = store_map::load(&self.layout).ok().flatten();
+        let changed: Vec<String> = current
+            .as_ref()
+            .and_then(|m| self.map_staleness(m))
+            .map(|s| s.areas.into_iter().filter(|(_, c)| *c).map(|(id, _)| id).collect())
+            .unwrap_or_default();
         let agent = self.catalog.agents.get("explorador");
         crate::render::map_task(&crate::render::MapView {
             agent,
             delegation: &self.delegation("explorador"),
             tree: &tree,
             current: current.as_ref(),
+            changed: &changed,
             template: MAP_TEMPLATE,
             bin: &self.bin,
         })
@@ -205,6 +211,174 @@ impl App {
         store_map::save_task(&self.layout, &task).ok();
         task.stops
     }
+}
+
+/// The files whose change means the project itself changed (the same ones `passo init` reads the stack from).
+const MANIFESTS: [&str; 5] = [
+    "Cargo.toml",
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "go.mod",
+];
+/// Anotações kept per area; the oldest leave first.
+const MAX_NOTES: usize = 5;
+
+/// How old the map is, by git: which areas changed since they were written, and whether the project did.
+#[derive(Debug, Clone, Default)]
+pub struct Staleness {
+    pub commit: Option<String>,
+    pub days: Option<i64>,
+    /// `(area id, changed since its commit)`; areas without a commit are left out.
+    pub areas: Vec<(String, bool)>,
+    pub manifests: bool,
+    /// Top-level folders that appeared since the map, outside every area.
+    pub new_dirs: Vec<String>,
+}
+
+impl Staleness {
+    pub fn changed(&self) -> usize {
+        self.areas.iter().filter(|(_, c)| *c).count()
+    }
+
+    /// The manifests changed, or more than a third of the areas did.
+    pub fn worth_remapping(&self) -> bool {
+        self.manifests || !self.new_dirs.is_empty() || (self.changed() * 3 > self.areas.len() && self.changed() > 0)
+    }
+}
+
+impl App {
+    /// How old the map is, by git. `None` without git.
+    pub fn map_staleness(&self, map: &passo_core::map::Map) -> Option<Staleness> {
+        let git = self.git();
+        if !git.is_repo() {
+            return None;
+        }
+        let mut out = Staleness::default();
+        for area in map.areas.iter().filter(|a| !a.attached()) {
+            let Some(commit) = &area.commit else { continue };
+            let changed = git
+                .changed_between(commit, &area.paths)
+                .map(|f| !f.is_empty())
+                .unwrap_or(true);
+            out.areas.push((area.id.clone(), changed));
+        }
+        out.commit = map.project.iter().chain(&map.areas).find_map(|n| n.commit.clone());
+        if let Some(commit) = &out.commit {
+            out.days = git
+                .commit_time(commit)
+                .map(|t| (self.now().timestamp() - t).max(0) / 86_400);
+            let manifests: Vec<String> = MANIFESTS.iter().map(|m| m.to_string()).collect();
+            out.manifests = git
+                .changed_between(commit, &manifests)
+                .map(|f| !f.is_empty())
+                .unwrap_or(false);
+            if let Ok(before) = git.top_level(commit) {
+                let covered = |dir: &str| {
+                    map.areas
+                        .iter()
+                        .flat_map(|a| &a.paths)
+                        .any(|p| p.split('/').next() == Some(dir))
+                };
+                let mut now: Vec<String> = project_files(&self.layout.root, Some(&git))
+                    .into_iter()
+                    .filter_map(|f| f.split_once('/').map(|(d, _)| d.to_string()))
+                    .collect();
+                now.sort();
+                now.dedup();
+                out.new_dirs = now.into_iter().filter(|d| !before.contains(d) && !covered(d)).collect();
+            }
+        }
+        Some(out)
+    }
+
+    /// The line `start` opens with when the map has aged; also leaves `map.stale` in the run's log.
+    pub(crate) fn map_stale_line(&self, run: &passo_core::Run) -> Option<String> {
+        let map = self.map.as_ref().ok()?.as_ref()?;
+        let stale = self.map_staleness(map).filter(Staleness::worth_remapping)?;
+        let made = match (&stale.commit, stale.days) {
+            (Some(c), Some(d)) => format!(" feito em {} ({d} dias)", &c[..c.len().min(7)]),
+            (Some(c), None) => format!(" feito em {}", &c[..c.len().min(7)]),
+            _ => String::new(),
+        };
+        let mut what = vec![];
+        if stale.manifests {
+            what.push("os manifestos mudaram".to_string());
+        }
+        if !stale.new_dirs.is_empty() {
+            what.push(format!(
+                "apareceram pastas fora do mapa ({})",
+                stale.new_dirs.join(", ")
+            ));
+        }
+        what.push(format!("{} de {} áreas mudaram", stale.changed(), stale.areas.len()));
+        let line = format!(
+            "Mapa do projeto{made}: {} desde então. Siga assim, ou peça ao agente para rodar passo map antes.",
+            what.join("; ")
+        );
+        let draft = EventDraft {
+            kind: "map.stale",
+            actor: Actor::Passo,
+            stage: run.stage,
+            text: line.clone(),
+            data: json!({ "changed": stale.changed(), "areas": stale.areas.len(), "manifests": stale.manifests }),
+        };
+        self.store.log(&run.id).append(&run.id, &[draft], self.now()).ok();
+        Some(line)
+    }
+
+    /// Applies the reviewer's word to the map on delivery: confirmed areas get the run's last commit; an area it
+    /// said is off keeps its commit and gets the note under `## Anotações`. Returns the touched paths, for git.
+    pub(crate) fn apply_map_checks(&self, run: &passo_core::Run) -> Vec<String> {
+        if run.map_checks.is_empty() {
+            return vec![];
+        }
+        let Ok(Some(mut map)) = store_map::load(&self.layout) else {
+            return vec![];
+        };
+        let head = if self.uses_git(run) { self.git().head() } else { None };
+        let mut touched = false;
+        for check in &run.map_checks {
+            let Some(area) = map.areas.iter_mut().find(|a| a.id == check.id && !a.attached()) else {
+                continue;
+            };
+            if check.ok {
+                if head.is_some() {
+                    area.commit = head.clone();
+                    touched = true;
+                }
+            } else if !check.note.is_empty() {
+                annotate(area, &run.id, &check.note);
+                touched = true;
+            }
+        }
+        if !touched {
+            return vec![];
+        }
+        store_map::save(&self.layout, &map)
+            .map(|paths| paths.into_iter().map(|p| p.display().to_string()).collect())
+            .unwrap_or_default()
+    }
+}
+
+/// Adds `- (run <id>) <note>` under `## Anotações`, keeping the newest few.
+fn annotate(area: &mut passo_core::map::Node, run: &str, note: &str) {
+    const HEADING: &str = "## Anotações";
+    let (text, mut notes) = match area.body.split_once(HEADING) {
+        Some((text, notes)) => (
+            text.trim_end().to_string(),
+            notes
+                .lines()
+                .map(str::trim)
+                .filter(|l| l.starts_with("- "))
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+        ),
+        None => (area.body.trim_end().to_string(), vec![]),
+    };
+    notes.push(format!("- (run {run}) {}", note.trim()));
+    let skip = notes.len().saturating_sub(MAX_NOTES);
+    area.body = format!("{text}\n\n{HEADING}\n{}", notes[skip..].join("\n"));
 }
 
 /// Dependencies the manifests declare: an area may cite them even without a `libs` entry.

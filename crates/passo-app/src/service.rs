@@ -212,7 +212,12 @@ impl App {
         self.store.set_current(Some(&id))?;
         self.write_tree(&run);
         let run = self.persist(run, out, None)?;
-        Ok(self.next_text(&run))
+        let stale = self.map_stale_line(&run);
+        let text = self.next_text(&run);
+        Ok(match stale {
+            Some(line) => format!("{line}\n{text}"),
+            None => text,
+        })
     }
 
     /// Lists the repository tree for the run (on start, and again when the dev changes the request).
@@ -381,7 +386,18 @@ impl App {
                 let text = read_input(&input.text)?;
                 self.check_read_only(&run)?;
                 let ids: Vec<String> = run.criteria.iter().map(|c| c.id.clone()).collect();
-                let review = self.valid(&run, spec::parse_review(&text, &ids))?;
+                let files = self.map_files(&run);
+                let areas: Vec<String> = self
+                    .map_selection(&run, &files)
+                    .map(|s| {
+                        s.nodes
+                            .iter()
+                            .filter(|n| n.kind == passo_core::map::NodeKind::Area)
+                            .map(|n| n.id.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let review = self.valid(&run, spec::parse_review(&text, &ids, &areas))?;
                 self.valid(&run, self.check_evidence(&run, &review))?;
                 Command::SubmitReview(review)
             }
@@ -666,6 +682,7 @@ impl App {
     }
 
     fn deliver(&self, run: &Run) -> Vec<EventDraft> {
+        let map_paths = self.apply_map_checks(run);
         let Some(ws) = run.workspace.as_ref().filter(|_| self.uses_git(run)) else {
             return vec![draft(
                 run,
@@ -680,11 +697,21 @@ impl App {
         let mut events = vec![];
         // The log goes into the branch before it leaves: committed, it travels with the code. If that fails (the
         // project ignores .passo/, say), the delivery still goes on: the log is on disk and the trailers are in.
+        let subject = if map_paths.is_empty() {
+            "log de auditoria do run"
+        } else {
+            "log de auditoria e mapa"
+        };
         let archived = self
             .store
             .archive(&run.id)
-            .and_then(|dir| self.commit_message(run, "log de auditoria do run").map(|m| (dir, m)))
-            .and_then(|(dir, message)| git.commit_paths(&message, &[&dir.display().to_string()]));
+            .and_then(|dir| self.commit_message(run, subject).map(|m| (dir, m)))
+            .and_then(|(dir, message)| {
+                let mut paths = vec![dir.display().to_string()];
+                paths.extend(map_paths.iter().cloned());
+                let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+                git.commit_paths(&message, &paths)
+            });
         if let Err(e) = archived {
             events.push(draft(
                 run,
