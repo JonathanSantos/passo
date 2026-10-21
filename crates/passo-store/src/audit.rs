@@ -4,7 +4,7 @@
 //! time, so every append takes a file lock.
 
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -49,6 +49,9 @@ pub struct EventLog {
     path: PathBuf,
 }
 
+/// Bytes read from the end of the file to find the last line; grows when a line is longer.
+const TAIL: u64 = 64 * 1024;
+
 impl EventLog {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         EventLog { path: path.into() }
@@ -68,7 +71,7 @@ impl EventLog {
         }
         let lock = File::create(self.path.with_extension("lock"))?;
         lock.lock().context("trava do log de eventos")?;
-        let last = self.read()?.pop();
+        let last = self.last()?;
         let (mut seq, mut prev) = last.map(|e| (e.seq, e.hash)).unwrap_or((0, "0".repeat(64)));
         let mut file = OpenOptions::new().create(true).append(true).open(&self.path)?;
         let mut written = vec![];
@@ -98,6 +101,35 @@ impl EventLog {
         file.flush()?;
         drop(lock);
         Ok(written)
+    }
+
+    /// The last event, read from the tail of the file: hooks append on every tool call, so this stays cheap.
+    pub fn last(&self) -> Result<Option<Event>> {
+        let Ok(mut file) = File::open(&self.path) else {
+            return Ok(None);
+        };
+        let len = file.metadata()?.len();
+        let mut window = TAIL;
+        loop {
+            let start = len.saturating_sub(window);
+            file.seek(SeekFrom::Start(start))?;
+            let mut bytes = Vec::with_capacity((len - start) as usize);
+            file.read_to_end(&mut bytes)?;
+            let mut lines = bytes
+                .split(|b| *b == b'\n')
+                .rev()
+                .filter(|l| !l.iter().all(u8::is_ascii_whitespace));
+            let Some(line) = lines.next() else {
+                return Ok(None);
+            };
+            // The last line is whole when the window holds a line before it, or the window is the whole file.
+            if start == 0 || lines.next().is_some() {
+                return Ok(Some(
+                    serde_json::from_slice(line).context("linha inválida no log de eventos")?,
+                ));
+            }
+            window *= 2;
+        }
     }
 
     pub fn read(&self) -> Result<Vec<Event>> {
@@ -162,9 +194,22 @@ mod tests {
         log.append("r", &[draft("a"), draft("b")], Utc::now()).unwrap();
         log.append("r", &[draft("c")], Utc::now()).unwrap();
         assert_eq!(log.verify().unwrap(), Ok(3));
+        assert_eq!(log.last().unwrap().unwrap().seq, 3);
         let text = std::fs::read_to_string(log.path()).unwrap().replace("\"b\"", "\"B\"");
         std::fs::write(log.path(), text).unwrap();
         assert!(matches!(log.verify().unwrap(), Err((2, _))));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn last_line_is_found_past_the_tail_window() {
+        let dir = std::env::temp_dir().join(format!("passo-audit-tail-{}", std::process::id()));
+        let log = EventLog::new(dir.join("events.jsonl"));
+        let long = "x".repeat(3 * TAIL as usize);
+        log.append("r", &[draft("a"), draft(&long)], Utc::now()).unwrap();
+        assert_eq!(log.last().unwrap().unwrap().seq, 2);
+        log.append("r", &[draft("c")], Utc::now()).unwrap();
+        assert_eq!(log.verify().unwrap(), Ok(3));
         std::fs::remove_dir_all(dir).ok();
     }
 }

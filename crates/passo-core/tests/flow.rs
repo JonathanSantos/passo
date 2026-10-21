@@ -287,6 +287,32 @@ fn review_failures_become_fix_steps_until_the_round_limit() {
     sim.apply(Command::SubmitReview(parse_review(failing, &criteria).unwrap()))
         .unwrap();
     assert_eq!(sim.gate(), GateKind::Travado);
+    assert_eq!(sim.run.stage, Stage::Construir);
+    assert_eq!(
+        sim.stages_entered().last().map(String::as_str),
+        Some("construir"),
+        "the stuck round still records the stage change, so the metrics attribute the time right"
+    );
+}
+
+#[test]
+fn proof_counts_final_checks_wherever_they_were_configured() {
+    // A project may define its final checks only in `.passo/stages/verificar.md`; the engine only sees results.
+    let mut config = Config::default();
+    config.checks.step = vec!["cargo check".into()];
+    let mut sim = Sim::start(&config, Size::M);
+    to_build(&mut sim);
+    sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
+        .unwrap();
+    sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/b.rs"], true)))
+        .unwrap();
+    let review = parse_review(
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"a"},{"id":"C2","ok":true,"evidencia":"b"}]}"#,
+        &["C1".into(), "C2".into()],
+    )
+    .unwrap();
+    sim.apply(Command::SubmitReview(review)).unwrap();
+    assert_eq!(sim.run.proof, Some(Proof::Forte));
 }
 
 #[test]

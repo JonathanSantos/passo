@@ -175,7 +175,9 @@ impl<'a> Engine<'a> {
 
     // -- stages ----------------------------------------------------------------------------------------------
 
-    fn enter(&self, run: &mut Run, stage: Stage, out: &mut Outcome, now: DateTime<Utc>) {
+    /// Moves the run to a stage and records it. Every stage change goes through here, so the log always has a
+    /// `stage.entered` for each visit and the metrics can attribute time to the right stage.
+    fn announce(&self, run: &mut Run, stage: Stage, out: &mut Outcome) -> Mode {
         run.stage = stage;
         run.reviewing = false;
         let mode = self.profile(run).mode(stage);
@@ -186,6 +188,11 @@ impl<'a> Engine<'a> {
             (_, Mode::Agente) => "agente",
         };
         out.event(run, "stage.entered", Actor::Passo, format!("{} ({who})", stage.label()));
+        mode
+    }
+
+    fn enter(&self, run: &mut Run, stage: Stage, out: &mut Outcome, now: DateTime<Utc>) {
+        let mode = self.announce(run, stage, out);
         match stage {
             Stage::Refinar if mode == Mode::Auto => {
                 run.brief = Some(auto_brief(run));
@@ -616,8 +623,8 @@ impl<'a> Engine<'a> {
         run.feedback = Some("A verificação achou problemas; cada um virou um passo de correção.".into());
         let max = self.profile(run).max_rounds;
         if run.rounds > max {
-            run.stage = Stage::Construir;
-            run.reviewing = false;
+            // Back in Construir, but no step starts until the dev answers.
+            self.announce(run, Stage::Construir, out);
             let detail = format!(
                 "A verificação já voltou {} vez(es) (limite {max}). Os problemas viraram passos de correção. `passo ok` tenta de novo; `passo ok \"dica\"` tenta com uma dica sua.",
                 run.rounds
@@ -958,8 +965,8 @@ impl<'a> Engine<'a> {
     }
 
     fn proof(&self, run: &Run) -> Proof {
-        let final_ok =
-            !run.checks.is_empty() && run.checks.iter().all(|c| c.ok) && !self.config.checks.final_.is_empty();
+        // `run.checks` holds the final checks here, wherever they were configured (passo.toml or the stage file).
+        let final_ok = !run.checks.is_empty() && run.checks.iter().all(|c| c.ok);
         let reviewed = !run.criteria.is_empty() && run.criteria.iter().all(|c| c.ok == Some(true));
         match (final_ok, reviewed) {
             (true, true) => Proof::Forte,

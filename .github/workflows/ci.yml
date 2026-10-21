@@ -32,3 +32,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: git config --global user.email ci@passo.dev && git config --global user.name ci
       - run: cargo test --workspace
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked

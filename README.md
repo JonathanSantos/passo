@@ -88,6 +88,7 @@ passo ui
 ## Auditoria e métricas
 
 - **Tudo vira evento** num log com cadeia de SHA-256: cada ação do agente, cada negação da trava, cada decisão sua (e por onde ela veio: chat, terminal ou painel). `passo log --verify` acusa qualquer linha alterada ou apagada.
+- **O log fica ancorado no git.** Cada commit do Passo leva o hash do último evento (`Passo-Audit:`), e na entrega (ou no `stop`) o log vai commitado em `.passo/audit/<run>/`, junto com o código. Um log reescrito ou encurtado até o último commit não bate com o histórico, e o `verify` diz.
 - **Mudanças no pedido** ficam registradas com quem, quando e o antes e depois: respostas, recusas, `passo change`, trocas de tamanho e cada versão do plano (`plan-v1.json`, `plan-v2.json`…).
 - **`passo stats`** mostra o que custou: tempo por etapa, **quantas vezes o dev foi chamado e quanto tempo o run esperou por ele**, tokens por etapa e por modelo, tentativas falhas, entregas inválidas e negações da trava.
 
@@ -169,7 +170,7 @@ O Passo junta o que mais rendia nos dois harnesses anteriores: o fluxo conduzido
 - **Sem analogias.** Nada de climb, belay ou seal: o dev não precisa aprender um vocabulário antes de usar.
 - **Nenhuma etapa some.** O modo rápido do SIMPLE pulava etapas. Aqui, o tamanho decide se uma etapa é feita por um agente ou pelo Passo sozinho (`auto`), e a auditoria mostra sempre as cinco.
 - **Aprovar pelo chat**, sem abrir outro terminal.
-- **Auditoria à prova de adulteração** e o histórico das mudanças no pedido.
+- **Auditoria com cadeia de hashes e ancorada no git**, e o histórico das mudanças no pedido.
 - **Métricas do custo para o dev**, além do custo em tokens.
 - **Um binário Rust** em vez de Node, com as plataformas atrás de adapters.
 - Ficaram de fora os testes escondidos do construtor, os vários revisores e o daemon: custam caro e rendem pouco com modelos baratos.

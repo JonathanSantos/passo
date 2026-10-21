@@ -215,7 +215,8 @@ fn run(command: Cmd) -> Result<String> {
             };
             let mut stdin = String::new();
             std::io::stdin().read_to_string(&mut stdin).ok();
-            if let Some(reply) = passo_app::hooks::handle(&platform, event, &stdin, &cwd()) {
+            let reporter: Arc<dyn passo_app::Reporter> = Arc::new(passo_web::HtmlReporter);
+            if let Some(reply) = passo_app::hooks::handle(&platform, event, &stdin, &cwd(), Some(reporter)) {
                 print!("{reply}");
             }
             Ok(String::new())
@@ -359,9 +360,17 @@ fn log(run: Option<String>, verify: bool, n: usize) -> Result<String> {
     };
     let log = app.store.log(&run.id);
     if verify {
-        return Ok(match log.verify()? {
-            Ok(count) => format!("✓ Cadeia íntegra: {count} eventos em {}", log.path().display()),
-            Err((seq, why)) => format!("✗ Cadeia quebrada no evento {seq}: {why}"),
+        let anchored = if app.uses_git(&run) {
+            " e de acordo com os commits"
+        } else {
+            ""
+        };
+        return Ok(match app.verify_audit(&run)? {
+            Ok(count) => format!(
+                "✓ Cadeia íntegra{anchored}: {count} eventos em {}",
+                log.path().display()
+            ),
+            Err(why) => format!("✗ Auditoria quebrada: {why}"),
         });
     }
     let events = log.read()?;
@@ -485,8 +494,8 @@ fn doctor() -> Result<String> {
         let def = app.catalog.stage(stage);
         let who = match agent {
             Some(a) => {
-                let models: Vec<String> = ["claude", "copilot"]
-                    .iter()
+                let models: Vec<String> = passo_adapters::ids()
+                    .into_iter()
                     .filter_map(|p| app.config.model(&a.model, p).map(|m| format!("{p}: {m}")))
                     .collect();
                 format!("{} (nível {}; {})", a.name, a.model, models.join(", "))
@@ -529,9 +538,9 @@ fn doctor() -> Result<String> {
         }
     ));
     if let Some(run) = app.store.latest() {
-        let verdict = match app.store.log(&run.id).verify()? {
+        let verdict = match app.verify_audit(&run)? {
             Ok(n) => format!("✓ {n} eventos íntegros"),
-            Err((seq, why)) => format!("✗ quebrada no evento {seq}: {why}"),
+            Err(why) => format!("✗ {why}"),
         };
         out.push_str(&format!("Auditoria do último run ({}): {verdict}\n", run.id));
     }

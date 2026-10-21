@@ -218,18 +218,16 @@ pub struct Config {
     pub limits: Limits,
     pub tests: Tests,
     pub sizes: BTreeMap<Size, Profile>,
-    /// Model tiers the agents ask for (`leve`, `forte`), per platform: `{ leve = { claude = "haiku" } }`.
+    /// Model tiers the agents ask for, per platform: `{ leve = { <plataforma> = "<modelo>" } }`. Each platform
+    /// fills in its own defaults for [`TIERS`]; the config only has to name what differs.
     pub models: BTreeMap<String, BTreeMap<String, String>>,
 }
 
+/// The built-in model tiers: a cheap one and a strong one. Projects may add their own.
+pub const TIERS: [&str; 2] = ["leve", "forte"];
+
 impl Default for Config {
     fn default() -> Self {
-        let tier = |claude: &str, copilot: &str| {
-            BTreeMap::from([
-                ("claude".to_string(), claude.to_string()),
-                ("copilot".to_string(), copilot.to_string()),
-            ])
-        };
         Config {
             extends: vec![],
             default_size: Size::M,
@@ -238,10 +236,7 @@ impl Default for Config {
             limits: Limits::default(),
             tests: Tests::default(),
             sizes: Size::ALL.into_iter().map(|s| (s, Profile::defaults(s))).collect(),
-            models: BTreeMap::from([
-                ("leve".to_string(), tier("haiku", "Claude Haiku 5.5")),
-                ("forte".to_string(), tier("sonnet", "Claude Sonnet 5.5")),
-            ]),
+            models: BTreeMap::new(),
         }
     }
 }

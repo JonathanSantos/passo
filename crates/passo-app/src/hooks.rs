@@ -2,7 +2,8 @@
 //!
 //! A hook that fails would stall the agent, so every error becomes "say nothing" (`PASSO_DEBUG=1` prints it).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 
 use passo_adapters::{HookEvent, HookReply, Platform};
 use passo_core::answers::{ChatDecision, parse_chat};
@@ -11,15 +12,22 @@ use passo_core::{Actor, EventDraft, Turn};
 use passo_store::{Layout, Transcript};
 use serde_json::{Value, json};
 
-use crate::service::{App, DevAction, Source};
+use crate::service::{App, DevAction, Reporter, Source};
 
 /// After this many blocks at the same spot the agent may stop: a hook must not trap it in a loop.
 const MAX_STOP_BLOCKS: u32 = 3;
 
-pub fn handle(platform: &str, event: HookEvent, stdin: &str, cwd: &Path) -> Option<String> {
+/// `reporter` writes the delivery report when a decision taken here (an approval typed in the chat) ends the run.
+pub fn handle(
+    platform: &str,
+    event: HookEvent,
+    stdin: &str,
+    cwd: &Path,
+    reporter: Option<Arc<dyn Reporter>>,
+) -> Option<String> {
     let platform = passo_adapters::get(platform)?;
     let raw: Value = serde_json::from_str(stdin).unwrap_or(Value::Null);
-    match decide(platform.as_ref(), event, &raw, cwd) {
+    match decide(platform.as_ref(), event, &raw, cwd, reporter) {
         Ok(reply) => platform.render(event, &reply).map(|v| v.to_string()),
         Err(e) => {
             if std::env::var_os("PASSO_DEBUG").is_some() {
@@ -30,17 +38,22 @@ pub fn handle(platform: &str, event: HookEvent, stdin: &str, cwd: &Path) -> Opti
     }
 }
 
-fn decide(platform: &dyn Platform, event: HookEvent, raw: &Value, cwd: &Path) -> anyhow::Result<HookReply> {
+fn decide(
+    platform: &dyn Platform,
+    event: HookEvent,
+    raw: &Value,
+    cwd: &Path,
+    reporter: Option<Arc<dyn Reporter>>,
+) -> anyhow::Result<HookReply> {
     let input = platform.parse_hook(event, raw);
-    let candidates = [
-        std::env::var_os("CLAUDE_PROJECT_DIR").map(PathBuf::from),
-        input.cwd.clone(),
-        Some(cwd.into()),
-    ];
+    let candidates = [input.project_dir.clone(), input.cwd.clone(), Some(cwd.into())];
     let Some(layout) = candidates.into_iter().flatten().find_map(|dir| Layout::find(&dir)) else {
         return Ok(HookReply::Allow);
     };
-    let app = App::at(layout)?;
+    let mut app = App::at(layout)?;
+    if let Some(reporter) = reporter {
+        app = app.with_reporter(reporter);
+    }
     let run = app.store.active();
     if let Some(run) = &run {
         for path in [&input.transcript, &input.agent_transcript].into_iter().flatten() {

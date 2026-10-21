@@ -1,6 +1,7 @@
 //! Runs on disk: the run itself, the active pointer, plan versions and the transcripts hooks report.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use passo_core::Run;
@@ -122,6 +123,26 @@ impl Store {
             serde_json::to_string_pretty(&all)?.as_bytes(),
         )?;
         Ok(())
+    }
+
+    /// Copies the run's log and plan versions to `.passo/audit/<id>/`, the folder that goes into git. Returns the
+    /// folder, relative to the project root.
+    pub fn archive(&self, id: &str) -> Result<PathBuf> {
+        let dir = self.layout.audit_dir(id);
+        std::fs::create_dir_all(&dir)?;
+        let mut files = vec![self.layout.events(id)];
+        if let Ok(entries) = std::fs::read_dir(self.layout.run_dir(id)) {
+            files.extend(entries.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("plan-v"))
+            }));
+        }
+        for file in files.iter().filter(|f| f.is_file()) {
+            let name = file.file_name().context("nome do arquivo")?;
+            std::fs::copy(file, dir.join(name))?;
+        }
+        Ok(dir.strip_prefix(&self.layout.root).unwrap_or(&dir).to_path_buf())
     }
 
     /// Counts how many times the stop hook blocked the agent at the same spot.

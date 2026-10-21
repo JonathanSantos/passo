@@ -96,10 +96,12 @@ impl App {
     pub fn at(layout: Layout) -> Result<App> {
         let loaded = passo_store::config::load(&layout)?;
         let catalog = Catalog::load(&layout)?;
+        let mut config = loaded.config;
+        fill_platform_models(&mut config);
         Ok(App {
             store: Store::new(layout.clone()),
             layout,
-            config: loaded.config,
+            config,
             layers: loaded.layers,
             catalog,
             bin: "passo".into(),
@@ -132,20 +134,38 @@ impl App {
         Git::new(&self.layout.root)
     }
 
-    fn uses_git(&self, run: &Run) -> bool {
+    pub fn uses_git(&self, run: &Run) -> bool {
         self.config.git.mode == GitMode::Branch && run.workspace.as_ref().is_some_and(|w| w.branch.is_some())
     }
 
-    /// Platforms installed in this project, detected by the files `passo init` writes.
+    /// Platforms installed in this project.
     pub fn platforms(&self) -> Vec<Box<dyn Platform>> {
         passo_adapters::registry()
             .into_iter()
-            .filter(|p| match p.id() {
-                "claude" => self.layout.root.join(".claude/skills/passo").exists(),
-                "copilot" => self.layout.root.join(".github/skills/passo").exists(),
-                _ => false,
-            })
+            .filter(|p| p.installed(&self.layout.root))
             .collect()
+    }
+
+    /// Refuses to go on when the repository is not on the run's branch: a commit now would put the agent's work
+    /// wherever the dev happens to be.
+    fn ensure_run_branch(&self, run: &Run) -> Result<()> {
+        let Some(expected) = run
+            .workspace
+            .as_ref()
+            .filter(|_| self.uses_git(run))
+            .and_then(|w| w.branch.as_deref())
+        else {
+            return Ok(());
+        };
+        let current = self.git().branch();
+        if current.as_deref() == Some(expected) {
+            return Ok(());
+        }
+        Err(Rejected(format!(
+            "o repositório está em {}, mas o run trabalha em {expected}. Peça ao dev para voltar com `git switch {expected}` e tente de novo.",
+            current.unwrap_or_else(|| "um commit solto".into())
+        ))
+        .into())
     }
 
     pub fn active(&self) -> Result<Run> {
@@ -237,6 +257,7 @@ impl App {
 
     pub fn done(&self, input: DoneInput) -> Result<String> {
         let run = self.active()?;
+        self.ensure_run_branch(&run)?;
         if run.turn() == Turn::Dev {
             return Err(Rejected(format!(
                 "Agora é a vez do dev; o Passo não aceita entregas.\n\n{}",
@@ -283,6 +304,7 @@ impl App {
 
     pub fn decide(&self, action: DevAction, source: Source) -> Result<Run> {
         let run = self.active()?;
+        self.ensure_run_branch(&run)?;
         let command = match action {
             DevAction::Approve(words) => Command::Approve(parse_answers(&words)),
             DevAction::Reject(text) => Command::Reject(text),
@@ -307,8 +329,9 @@ impl App {
             return Ok(());
         };
         let git = self.git();
+        self.store.archive(&run.id)?;
         git.stage_all()?;
-        git.commit(&format!("passo({}): trabalho em andamento (run interrompido)", run.id))?;
+        git.commit(&self.commit_message(run, "trabalho em andamento (run interrompido)")?)?;
         git.switch(back)?;
         let text = format!("O trabalho ficou em {branch}; de volta em {back}");
         self.store.log(&run.id).append(
@@ -347,6 +370,47 @@ impl App {
             delegation: &delegation,
             bin: &self.bin,
         })
+    }
+
+    // -- audit -----------------------------------------------------------------------------------------------
+
+    /// `passo(<run>): <text>` plus a trailer with the hash of the last event, so git history anchors the log.
+    fn commit_message(&self, run: &Run, text: &str) -> Result<String> {
+        let mut message = format!("passo({}): {text}", run.id);
+        if let Some(last) = self.store.log(&run.id).last()? {
+            message.push_str(&format!("\n\n{AUDIT_TRAILER}: {}", last.hash));
+        }
+        Ok(message)
+    }
+
+    /// Checks the log's chain and, with git, that the newest `Passo-Audit` trailer on the run's branch names an
+    /// event that is still in the log. `Ok(n)` with the number of events, or what is wrong.
+    pub fn verify_audit(&self, run: &Run) -> Result<std::result::Result<usize, String>> {
+        let log = self.store.log(&run.id);
+        let count = match log.verify()? {
+            Ok(count) => count,
+            Err((seq, why)) => return Ok(Err(format!("evento {seq}: {why}"))),
+        };
+        let Some(branch) = run
+            .workspace
+            .as_ref()
+            .filter(|_| self.uses_git(run))
+            .and_then(|w| w.branch.as_deref())
+        else {
+            return Ok(Ok(count));
+        };
+        let git = self.git();
+        let rev = if git.branch_exists(branch) { branch } else { "HEAD" };
+        let Some(anchor) = git.last_trailer(AUDIT_TRAILER, &format!("passo({}):", run.id), rev) else {
+            return Ok(Ok(count));
+        };
+        if log.read()?.iter().any(|e| e.hash == anchor) {
+            return Ok(Ok(count));
+        }
+        Ok(Err(format!(
+            "o último commit do run aponta para o evento {}…, que não está no log: o log foi reescrito ou encurtado depois do commit",
+            &anchor[..anchor.len().min(8)]
+        )))
     }
 
     // -- engine plumbing -------------------------------------------------------------------------------------
@@ -399,7 +463,7 @@ impl App {
                     if self.uses_git(&run) {
                         let git = self.git();
                         git.stage_all()?;
-                        let hash = git.commit(&format!("passo({}): {message}", run.id))?;
+                        let hash = git.commit(&self.commit_message(&run, &message)?)?;
                         if let Some(hash) = &hash
                             && let Some(s) = run.steps.iter_mut().find(|s| s.id == step)
                         {
@@ -431,7 +495,7 @@ impl App {
                     queue.extend(more.effects);
                 }
                 Effect::WriteReport => report = true,
-                Effect::Deliver => events.push(self.deliver(&run)),
+                Effect::Deliver => events.extend(self.deliver(&run)),
             }
             self.store.save(&run)?;
             log.append(&run.id, &events, self.clock.now())?;
@@ -453,34 +517,54 @@ impl App {
             .collect()
     }
 
-    fn deliver(&self, run: &Run) -> EventDraft {
+    fn deliver(&self, run: &Run) -> Vec<EventDraft> {
         let Some(ws) = run.workspace.as_ref().filter(|_| self.uses_git(run)) else {
-            return draft(
+            return vec![draft(
                 run,
                 "delivered",
                 Actor::Passo,
                 "Entrega aceita (sem git: as mudanças já estão no lugar)".into(),
-            );
+            )];
         };
         let git = self.git();
         let branch = ws.branch.clone().unwrap_or_default();
         let back = ws.from.clone().unwrap_or_else(|| "main".into());
+        let mut events = vec![];
+        // The log goes into the branch before it leaves: committed, it travels with the code. If that fails (the
+        // project ignores .passo/, say), the delivery still goes on: the log is on disk and the trailers are in.
+        let archived = self
+            .store
+            .archive(&run.id)
+            .and_then(|dir| self.commit_message(run, "log de auditoria do run").map(|m| (dir, m)))
+            .and_then(|(dir, message)| git.commit_paths(&message, &[&dir.display().to_string()]));
+        if let Err(e) = archived {
+            events.push(draft(
+                run,
+                "audit.unarchived",
+                Actor::Passo,
+                format!("O log de auditoria não foi commitado em {branch}: {e}"),
+            ));
+        }
         if let Err(e) = git.switch(&back) {
-            return draft(
+            events.push(draft(
                 run,
                 "delivery.failed",
                 Actor::Passo,
                 format!("Não consegui voltar para {back}: {e}"),
-            );
+            ));
+            return events;
         }
-        match self.config.git.delivery {
+        events.push(match self.config.git.delivery {
             Delivery::Keep => draft(
                 run,
                 "delivered",
                 Actor::Passo,
                 format!("Branch {branch} pronto para pull request (gh pr create --head {branch})"),
             ),
-            Delivery::Merge => match git.merge(&branch, &format!("passo({}): {}", run.id, run.request)) {
+            Delivery::Merge => match self
+                .commit_message(run, &run.request)
+                .and_then(|message| git.merge(&branch, &message))
+            {
                 Ok(()) => draft(run, "delivered", Actor::Passo, format!("{branch} juntado em {back}")),
                 Err(e) => draft(
                     run,
@@ -491,7 +575,8 @@ impl App {
                     ),
                 ),
             },
-        }
+        });
+        events
     }
 
     fn write_report(&self, run: &Run) {
@@ -517,8 +602,10 @@ impl App {
             git.stage_all()?;
             let tests = globs(&self.config.tests.patterns)?;
             let sensitive = globs(&self.config.limits.sensitive)?;
-            facts.files = git.staged_files()?;
-            let numstat = git.numstat(&base)?;
+            // The archived log is Passo's own; everything else under .passo/ is project config and counts.
+            let own = |p: &str| p.starts_with(".passo/audit/");
+            facts.files = git.staged_files()?.into_iter().filter(|f| !own(f)).collect();
+            let numstat: Vec<(String, usize)> = git.numstat(&base)?.into_iter().filter(|(p, _)| !own(p)).collect();
             let counted: Vec<&(String, usize)> = numstat
                 .iter()
                 .filter(|(p, _)| !tests.is_match(p) && !p.ends_with(".md"))
@@ -648,7 +735,7 @@ impl App {
                 let log = self.store.log(&run.id);
                 let events = log.read()?;
                 let metrics = metrics::compute(run, &events, &self.usage(run), self.clock.now());
-                let audit = log.verify()?.map_err(|(seq, why)| format!("evento {seq}: {why}"));
+                let audit = self.verify_audit(run)?;
                 (events, Some(metrics), Some(audit))
             }
             None => (vec![], None, None),
@@ -675,6 +762,25 @@ impl App {
             checks_step: self.config.checks.step.clone(),
             checks_final: self.config.checks.final_.clone(),
         })
+    }
+}
+
+/// The commit trailer that names the last audit event: `Passo-Audit: <sha256>`.
+pub const AUDIT_TRAILER: &str = "Passo-Audit";
+
+/// Each platform knows its own model names; the config only has to say what differs from them.
+fn fill_platform_models(config: &mut Config) {
+    for platform in passo_adapters::registry() {
+        for tier in passo_core::config::TIERS {
+            if let Some(model) = platform.default_model(tier) {
+                config
+                    .models
+                    .entry(tier.to_string())
+                    .or_default()
+                    .entry(platform.id().to_string())
+                    .or_insert_with(|| model.to_string());
+            }
+        }
     }
 }
 

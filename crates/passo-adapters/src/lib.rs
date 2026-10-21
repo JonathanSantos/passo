@@ -56,6 +56,8 @@ impl HookEvent {
 #[derive(Debug, Clone, Default)]
 pub struct HookInput {
     pub cwd: Option<PathBuf>,
+    /// The project root the platform itself reports (an environment variable, say), when it does.
+    pub project_dir: Option<PathBuf>,
     pub tool: Option<ToolUse>,
     /// What the dev typed (prompt hooks only).
     pub prompt: Option<String>,
@@ -111,6 +113,10 @@ pub struct Usage {
 pub trait Platform: Send + Sync {
     fn id(&self) -> &'static str;
     fn label(&self) -> &'static str;
+    /// Whether `passo init` already set this platform up in the project.
+    fn installed(&self, root: &Path) -> bool;
+    /// The platform's model for a tier (`leve`, `forte`) when the config does not say.
+    fn default_model(&self, tier: &str) -> Option<&'static str>;
     /// Writes the skill, the agents and the hooks into the project. Returns the files written.
     fn install(&self, ctx: &InstallContext) -> Result<Vec<PathBuf>>;
     /// Reads a hook payload.

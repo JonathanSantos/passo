@@ -8,7 +8,8 @@
 //!   stages/<etapa>.md   how a stage is done in this project
 //!   checklists/*.md     domain checklists for planning and review
 //!   current             id of the active run
-//!   runs/<id>/          run.json, events.jsonl, plan-v<N>.json, sessions.json, report.html
+//!   runs/<id>/          run.json, events.jsonl, plan-v<N>.json, sessions.json, report.html (not in git)
+//!   audit/<id>/         the log and the plans as they were when the run ended, committed on the run's branch
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -79,6 +80,10 @@ impl Layout {
     }
     pub fn report(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("report.html")
+    }
+    /// Where the run's log is kept for git: outside `runs/`, which stays ignored.
+    pub fn audit_dir(&self, id: &str) -> PathBuf {
+        self.passo().join("audit").join(id)
     }
     pub fn plan_version(&self, id: &str, version: u32) -> PathBuf {
         self.run_dir(id).join(format!("plan-v{version}.json"))

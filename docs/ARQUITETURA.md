@@ -48,7 +48,9 @@ Toda mudança de intenção passa pelo Refinar: recusar o plano e `passo change`
 
 ## Auditoria
 
-`events.jsonl` guarda uma linha por evento, e cada linha leva o SHA-256 da anterior. Editar ou apagar uma linha quebra a cadeia, e `passo log --verify` (ou o rodapé do painel) diz onde. Hooks e CLI escrevem ao mesmo tempo, então cada escrita pega uma trava de arquivo (`File::lock`).
+`events.jsonl` guarda uma linha por evento, e cada linha leva o SHA-256 da anterior. Editar ou apagar uma linha quebra a cadeia, e `passo log --verify` (ou o rodapé do painel) diz onde. Hooks e CLI escrevem ao mesmo tempo, então cada escrita pega uma trava de arquivo (`File::lock`) e lê só a última linha para encadear.
+
+A cadeia sozinha só detecta edição: quem reescreve o arquivo inteiro recomputa os hashes. A âncora externa é o git. Todo commit que o Passo faz (um por passo, o de `stop`, o do log e o merge da entrega) leva o trailer `Passo-Audit: <hash do último evento>`, e ao encerrar o run o log e as versões do plano são copiados para `.passo/audit/<run>/` e commitados no branch do run. `verify` confere a cadeia e, depois, que o evento apontado pelo último commit do run ainda está no log. Os eventos depois desse commit (a entrega em si, hooks tardios) só existem em `runs/`, que continua fora do git por ser o estado vivo; e a CLI lê só `runs/`, então num clone novo a cópia em `audit/` se lê com as ferramentas de texto, não com `passo log`.
 
 ## Métricas
 

@@ -4,7 +4,7 @@
 //! Copilot's hook format has moved more than once. Replies carry both the top-level fields and
 //! `hookSpecificOutput`, and payloads are read under both the snake_case and camelCase keys.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::{Map, Value, json};
@@ -47,6 +47,18 @@ impl Platform for Copilot {
 
     fn label(&self) -> &'static str {
         "GitHub Copilot (VS Code)"
+    }
+
+    fn installed(&self, root: &Path) -> bool {
+        root.join(".github/skills/passo").exists()
+    }
+
+    fn default_model(&self, tier: &str) -> Option<&'static str> {
+        match tier {
+            "leve" => Some("Claude Haiku 5.5"),
+            "forte" => Some("Claude Sonnet 5.5"),
+            _ => None,
+        }
     }
 
     fn install(&self, ctx: &InstallContext) -> Result<Vec<PathBuf>> {
@@ -109,6 +121,7 @@ impl Platform for Copilot {
             prompt: payload::text(raw, &["prompt", "userPrompt", "user_prompt"]),
             transcript: payload::text(raw, &["transcript_path", "transcriptPath"]).map(PathBuf::from),
             agent_transcript: payload::text(raw, &["agent_transcript_path", "agentTranscriptPath"]).map(PathBuf::from),
+            project_dir: None,
             cwd,
         }
     }

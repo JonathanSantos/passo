@@ -182,6 +182,38 @@ impl Git {
         Ok(self.head())
     }
 
+    /// Commits only the given paths (staged or not), leaving the rest of the index as it is.
+    pub fn commit_paths(&self, message: &str, paths: &[&str]) -> Result<Option<String>> {
+        let mut add = vec!["add", "--"];
+        add.extend(paths);
+        self.output(&add)?;
+        let mut unchanged = vec!["diff", "--cached", "--quiet", "--"];
+        unchanged.extend(paths);
+        if self.output(&unchanged).is_ok() {
+            return Ok(None);
+        }
+        let mut commit = vec!["commit", "-q", "--no-verify", "-m", message, "--"];
+        commit.extend(paths);
+        self.output(&commit)?;
+        Ok(self.head())
+    }
+
+    pub fn branch_exists(&self, name: &str) -> bool {
+        self.output(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{name}")])
+            .is_ok()
+    }
+
+    /// The value of a trailer (`Key: value`) in the newest commit reachable from `rev` whose message contains
+    /// `subject` (a run's own commits start with `passo(<id>):`, so another run's commits never answer).
+    pub fn last_trailer(&self, key: &str, subject: &str, rev: &str) -> Option<String> {
+        let grep = format!("--grep={subject}");
+        let format = format!("--format=%(trailers:key={key},valueonly)");
+        self.output(&["log", "-1", "--fixed-strings", &grep, &format, rev])
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    }
+
     pub fn merge(&self, branch: &str, message: &str) -> Result<()> {
         if let Err(e) = self.output(&["merge", "--no-ff", "-q", "-m", message, branch]) {
             self.output(&["merge", "--abort"]).ok();

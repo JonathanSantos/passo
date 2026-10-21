@@ -52,6 +52,18 @@ impl Platform for Claude {
         "Claude Code"
     }
 
+    fn installed(&self, root: &Path) -> bool {
+        root.join(".claude/skills/passo").exists()
+    }
+
+    fn default_model(&self, tier: &str) -> Option<&'static str> {
+        match tier {
+            "leve" => Some("haiku"),
+            "forte" => Some("sonnet"),
+            _ => None,
+        }
+    }
+
     fn install(&self, ctx: &InstallContext) -> Result<Vec<PathBuf>> {
         let mut written = vec![files::write(ctx.root, ".claude/skills/passo/SKILL.md", ctx.skill)?];
         for agent in ctx.agents {
@@ -111,6 +123,8 @@ impl Platform for Claude {
             prompt: payload::text(raw, &["prompt"]),
             transcript: payload::text(raw, &["transcript_path"]).map(PathBuf::from),
             agent_transcript: payload::text(raw, &["agent_transcript_path"]).map(PathBuf::from),
+            // Claude Code tells hooks where the project is, even when the tool call runs elsewhere.
+            project_dir: std::env::var_os("CLAUDE_PROJECT_DIR").map(PathBuf::from),
             cwd,
         }
     }

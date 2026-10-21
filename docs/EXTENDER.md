@@ -125,14 +125,16 @@ forte = { claude = "sonnet", copilot = "Claude Sonnet 5.5" }
 barato = { claude = "haiku", copilot = "GPT-5 mini" }
 ```
 
-O agente pede um nível; cada plataforma recebe o nome de modelo dela. Para rodar tudo no modelo mais barato, aponte `forte` para o mesmo modelo de `leve`.
+O agente pede um nível; cada plataforma recebe o nome de modelo dela. Os valores acima são os padrões, e cada plataforma traz os seus: você só escreve o que muda. Para rodar tudo no modelo mais barato, aponte `forte` para o mesmo modelo de `leve`.
 
 ## Uma plataforma nova
 
 Plataformas ficam atrás do trait `Platform` em [`crates/passo-adapters`](../crates/passo-adapters/src/lib.rs). Uma nova é um módulo que implementa:
 
 - `install`: escreve a skill, os agentes e os hooks no projeto.
-- `parse_hook` / `render`: lê o payload do hook e responde no dialeto da plataforma.
+- `installed`: diz se o `init` já passou por este projeto.
+- `default_model`: o modelo da plataforma para cada nível (`leve`, `forte`).
+- `parse_hook` / `render`: lê o payload do hook e responde no dialeto da plataforma. Se a plataforma informa a raiz do projeto por fora do payload (uma variável de ambiente), é `parse_hook` que preenche `project_dir`.
 - `usage`: lê o uso de tokens das transcrições, se a plataforma as expõe.
 - `delegation`: como o agente principal passa uma etapa a um subagente.
 

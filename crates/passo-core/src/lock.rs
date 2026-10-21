@@ -32,9 +32,10 @@ pub enum Verdict {
 }
 
 /// Subcommands that belong to the dev: an agent running them would approve its own work.
-pub const DEV_COMMANDS: [&str; 6] = ["ok", "no", "change", "size", "stop", "unlock"];
+pub const DEV_COMMANDS: [&str; 5] = ["ok", "no", "change", "size", "stop"];
 
-const GIT_WRITES: [&str; 13] = [
+/// Subcommands that move history or the branch: Passo's job during a run.
+const GIT_WRITES: [&str; 15] = [
     "commit",
     "checkout",
     "switch",
@@ -48,7 +49,12 @@ const GIT_WRITES: [&str; 13] = [
     "worktree",
     "tag",
     "am",
+    "apply",
+    "revert",
 ];
+
+/// Subcommands that change files through git instead of the editing tools the lock watches.
+const GIT_FILE_OPS: [&str; 3] = ["rm", "mv", "clean"];
 
 /// Finds `passo <dev command>` anywhere in a shell command.
 pub fn dev_command_in(command: &str) -> Option<&'static str> {
@@ -80,7 +86,7 @@ fn git_write_in(command: &str) -> Option<&'static str> {
             j += 2;
         }
         if let Some(sub) = words.get(j)
-            && let Some(found) = GIT_WRITES.iter().find(|g| **g == *sub)
+            && let Some(found) = GIT_WRITES.iter().chain(GIT_FILE_OPS.iter()).find(|g| **g == *sub)
         {
             return Some(found);
         }
@@ -131,6 +137,11 @@ pub fn judge(tool: &ToolUse, root: &Path, run: Option<&Run>) -> Verdict {
         && let Some(command) = &tool.command
         && let Some(git) = git_write_in(command)
     {
+        if GIT_FILE_OPS.contains(&git) {
+            return Verdict::Deny(format!(
+                "`git {git}` muda arquivos por fora da trava: apague ou renomeie com as ferramentas de edição, e deixe o git com o Passo"
+            ));
+        }
         return Verdict::Deny(format!(
             "`git {git}` é com o Passo durante um run: ele faz os commits e cuida da branch"
         ));
@@ -250,6 +261,14 @@ mod tests {
         ));
         assert!(matches!(
             judge(&exec("git branch -D main"), root, Some(&run)),
+            Verdict::Deny(_)
+        ));
+        assert!(matches!(
+            judge(&exec("git clean -fd"), root, Some(&run)),
+            Verdict::Deny(_)
+        ));
+        assert!(matches!(
+            judge(&exec("git rm src/old.rs"), root, Some(&run)),
             Verdict::Deny(_)
         ));
         assert_eq!(judge(&exec("git diff HEAD"), root, Some(&run)), Verdict::Allow);

@@ -2,10 +2,22 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 use passo_adapters::HookEvent;
-use passo_app::{App, DevAction, DoneInput, Source, hooks, setup};
+use passo_app::{App, DevAction, DoneInput, Reporter, Snapshot, Source, hooks, setup};
 use passo_core::{GateKind, Stage, Status, Turn};
+
+/// Stands in for the HTML report: writes the run id where the report would go.
+struct FileReporter;
+
+impl Reporter for FileReporter {
+    fn write(&self, snapshot: &Snapshot, path: &Path) -> anyhow::Result<()> {
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(path, snapshot.run.as_ref().map(|r| r.id.clone()).unwrap_or_default())?;
+        Ok(())
+    }
+}
 
 struct Project {
     root: PathBuf,
@@ -70,7 +82,13 @@ impl Project {
     }
 
     fn hook(&self, event: HookEvent, payload: serde_json::Value) -> Option<String> {
-        hooks::handle("claude", event, &payload.to_string(), &self.root)
+        hooks::handle(
+            "claude",
+            event,
+            &payload.to_string(),
+            &self.root,
+            Some(Arc::new(FileReporter)),
+        )
     }
 }
 
@@ -155,9 +173,30 @@ fn standard_run_branches_commits_and_merges() {
     );
     assert!(p.git(&["log", "--oneline"]).contains("S1: Campo"));
 
+    // Every commit of the run names the last audit event, and the log itself was merged with the code.
+    let step_commit = p.git(&["log", "-1", "--format=%B", "--grep=S1: Campo"]);
+    assert!(step_commit.contains("Passo-Audit: "), "{step_commit}");
+    let archived = p.root.join(".passo/audit").join(&run.id).join("events.jsonl");
+    assert!(archived.is_file());
+    assert!(p.git(&["ls-files", ".passo/audit"]).contains("events.jsonl"));
+    assert!(
+        p.git(&["log", "-1", "--format=%B"]).contains("Passo-Audit: "),
+        "merge commit carries the anchor"
+    );
+
     let app = p.app();
     let log = app.store.log(&run.id);
     assert!(log.verify().unwrap().is_ok());
+    assert!(app.verify_audit(&run).unwrap().is_ok());
+
+    // Cutting lines off the end keeps the chain valid but no longer matches what git recorded.
+    let text = std::fs::read_to_string(log.path()).unwrap();
+    let cut: Vec<&str> = text.lines().take(3).collect();
+    std::fs::write(log.path(), cut.join("\n") + "\n").unwrap();
+    assert!(log.verify().unwrap().is_ok(), "a prefix is a valid chain");
+    let err = app.verify_audit(&run).unwrap().unwrap_err();
+    assert!(err.contains("não está no log"), "{err}");
+    std::fs::write(log.path(), text).unwrap();
     let events = log.read().unwrap();
     assert!(events.iter().any(|e| e.kind == "lock.denied"));
     assert!(events.iter().any(|e| e.data["via"] == "chat"));
@@ -228,6 +267,75 @@ fn stop_keeps_the_work_on_the_branch_and_goes_back() {
     );
     let branch = p.git(&["branch", "--list", "passo/*", "--format=%(refname:short)"]);
     assert!(p.git(&["log", "--oneline", &branch]).contains("run interrompido"));
+    assert!(
+        p.git(&["ls-tree", "-r", "--name-only", &branch])
+            .contains(".passo/audit/")
+    );
+}
+
+#[test]
+fn accepting_from_the_chat_writes_the_report() {
+    let p = Project::new("chat-report");
+    p.app().start("Trocar o título", Some(passo_core::Size::Pp)).unwrap();
+    p.write("src/lib.txt", "título novo\n");
+    p.done("título");
+    let run = p.app().active().unwrap();
+    assert_eq!(run.gate.as_ref().unwrap().kind, GateKind::Aceitar);
+    let reply = p
+        .hook(
+            HookEvent::UserPrompt,
+            serde_json::json!({"cwd": p.root, "prompt": "ok"}),
+        )
+        .unwrap();
+    assert!(reply.contains("respondeu pelo chat"), "{reply}");
+    let report = p.root.join(".passo/runs").join(&run.id).join("report.html");
+    assert_eq!(std::fs::read_to_string(report).unwrap(), run.id);
+}
+
+#[test]
+fn a_second_run_is_not_judged_by_the_first_runs_anchor() {
+    let p = Project::new("second-run");
+    p.app().start("Trocar o título", Some(passo_core::Size::Pp)).unwrap();
+    p.write("src/lib.txt", "título novo\n");
+    p.done("título");
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    assert!(p.git(&["log", "-1", "--format=%B"]).contains("Passo-Audit: "));
+    p.app().start("Trocar a cor", Some(passo_core::Size::Pp)).unwrap();
+    let run = p.app().active().unwrap();
+    assert!(p.app().verify_audit(&run).unwrap().is_ok(), "no commit of its own yet");
+    // Stopping right away still leaves an anchored commit behind.
+    p.app().decide(DevAction::Stop(String::new()), Source::Cli).unwrap();
+    let run = p.app().store.load(&run.id).unwrap();
+    assert!(p.app().verify_audit(&run).unwrap().is_ok());
+}
+
+#[test]
+fn off_the_run_branch_nothing_is_committed() {
+    let p = Project::new("branch-guard");
+    p.app().start("Trocar o título", Some(passo_core::Size::Pp)).unwrap();
+    p.git(&["switch", "-q", "main"]);
+    p.write("src/lib.txt", "mudança no lugar errado\n");
+    let err = p
+        .app()
+        .done(DoneInput {
+            text: "título".into(),
+            ..Default::default()
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("main") && err.contains("passo/"), "{err}");
+    assert_eq!(
+        p.git(&["log", "--oneline"]).lines().count(),
+        1,
+        "main keeps only the first commit"
+    );
+    let err = p
+        .app()
+        .decide(DevAction::Stop(String::new()), Source::Cli)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("git switch passo/"), "{err}");
+    p.git(&["checkout", "-q", "--", "src/lib.txt"]);
 }
 
 #[test]

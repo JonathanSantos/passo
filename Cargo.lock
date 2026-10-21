@@ -444,7 +444,6 @@ name = "passo-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "globset",
  "serde",
  "serde_json",
  "thiserror",
