@@ -60,6 +60,8 @@ As métricas saem do log, não de contadores paralelos: o tempo de cada etapa ve
 
 `passo_core::lock::judge(tool, root, run)` decide sobre uma chamada de ferramenta já traduzida (`ToolUse { kind, paths, command }`). Os adapters fazem a tradução, e o core não sabe qual plataforma chamou. Além do hook, o `passo-app` confere no git, ao receber uma entrega de etapa só de leitura, se algum arquivo mudou por um caminho que o hook não vê (um redirecionamento no shell, por exemplo).
 
+Os comandos do dev têm uma terceira camada, que não depende de hook: `Platform::agent_env` diz se o processo roda no ambiente do agente (o Claude Code define `CLAUDECODE`, e subagentes herdam), e a CLI recusa `ok`, `no`, `change`, `size` e `stop` ali, gravando `lock.denied` com `via: cli`. A recusa fica só na CLI, nunca em `App::decide`: a aprovação pelo chat roda dentro do hook de prompt, no mesmo ambiente, e negaria a si mesma. `PASSO_DEV=1` libera o dev que roda a CLI de propósito no terminal do agente. O Copilot ainda não tem um sinal confiável (o VS Code marca todo terminal integrado igual), então ali vale só o hook.
+
 ## Padrões usados
 
 | Padrão                                 | Onde                                                                   |

@@ -52,7 +52,7 @@ não: o que mudar    recusa; o pedido volta para o refinamento
 aceito              aceita a entrega (no chat, um ok solto não basta: aceitar junta o branch)
 ```
 
-Responder no chat funciona porque o hook de prompt só dispara com o que **você** digita. O agente, por sua vez, não consegue rodar `passo ok`: a trava nega.
+Responder no chat funciona porque o hook de prompt só dispara com o que **você** digita. O agente, por sua vez, não consegue rodar `passo ok`: a trava nega pelo hook, e a própria CLI recusa `ok`, `no`, `change`, `size` e `stop` quando roda no ambiente do agente (o Claude Code marca esse ambiente, inclusive o dos subagentes, que não passam pelos hooks). Se você quiser rodar um desses comandos de propósito no terminal do agente, use `PASSO_DEV=1 passo ok`.
 
 ## Começar
 

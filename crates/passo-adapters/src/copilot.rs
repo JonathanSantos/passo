@@ -49,6 +49,12 @@ impl Platform for Copilot {
         "GitHub Copilot (VS Code)"
     }
 
+    /// No reliable signal yet: VS Code sets `VSCODE_PID` and `TERM_PROGRAM=vscode` in every integrated terminal,
+    /// the dev's own included, so they cannot tell the agent apart.
+    fn agent_env(&self, _env: &dyn Fn(&str) -> Option<String>) -> bool {
+        false
+    }
+
     fn installed(&self, root: &Path) -> bool {
         root.join(".github/skills/passo").exists()
     }

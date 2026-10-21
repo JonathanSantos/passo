@@ -358,6 +358,20 @@ impl App {
         Ok(())
     }
 
+    /// Leaves a `lock.denied` in the active run's log for a refusal outside the hooks (the CLI in an agent's
+    /// environment). Best effort: the refusal stands whether or not there is a run to log it in.
+    pub fn record_denial(&self, text: &str, via: &str) {
+        let Some(run) = self.store.active() else { return };
+        let event = EventDraft {
+            kind: "lock.denied",
+            actor: Actor::Agent,
+            stage: run.stage,
+            text: text.to_string(),
+            data: json!({ "via": via }),
+        };
+        self.store.log(&run.id).append(&run.id, &[event], self.clock.now()).ok();
+    }
+
     /// One screen for the dev: where the run is and what it waits for.
     pub fn status_text(&self) -> String {
         let Some(run) = self.store.latest() else {

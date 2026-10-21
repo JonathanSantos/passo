@@ -52,6 +52,11 @@ impl Platform for Claude {
         "Claude Code"
     }
 
+    /// Claude Code sets `CLAUDECODE` for the tools it runs, and subagents inherit it.
+    fn agent_env(&self, env: &dyn Fn(&str) -> Option<String>) -> bool {
+        env("CLAUDECODE").is_some_and(|v| !v.is_empty())
+    }
+
     fn installed(&self, root: &Path) -> bool {
         root.join(".claude/skills/passo").exists()
     }
@@ -288,6 +293,13 @@ mod tests {
         assert_eq!(usage.len(), 2);
         assert_eq!(usage.iter().map(|u| u.output).sum::<u64>(), 12);
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn agent_environment_is_read_from_claudecode() {
+        assert!(Claude.agent_env(&|k| (k == "CLAUDECODE").then(|| "1".to_string())));
+        assert!(!Claude.agent_env(&|_| None));
+        assert!(!Claude.agent_env(&|k| (k == "CLAUDECODE").then(String::new)));
     }
 
     #[test]

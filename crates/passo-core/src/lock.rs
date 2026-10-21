@@ -115,14 +115,19 @@ fn inside_passo_dir(root: &Path, path: &Path) -> bool {
     path.strip_prefix(root).ok().and_then(|rel| rel.components().next()) == Some(Component::Normal(".passo".as_ref()))
 }
 
+/// What an agent reads when it tries a dev decision, from a hook or from the CLI in an agent's environment.
+pub fn dev_command_refusal(command: &str) -> String {
+    format!(
+        "`passo {command}` é decisão do dev. Pare e mostre ao dev o que o Passo pediu; ele responde aqui no chat (ex.: \"ok\") ou no terminal."
+    )
+}
+
 pub fn judge(tool: &ToolUse, root: &Path, run: Option<&Run>) -> Verdict {
     if tool.kind == ToolKind::Exec
         && let Some(command) = &tool.command
         && let Some(dev) = dev_command_in(command)
     {
-        return Verdict::Deny(format!(
-            "`passo {dev}` é decisão do dev. Pare e mostre ao dev o que o Passo pediu; ele responde aqui no chat (ex.: \"ok\") ou no terminal."
-        ));
+        return Verdict::Deny(dev_command_refusal(dev));
     }
     let Some(run) = run.filter(|r| r.active()) else {
         return Verdict::Allow;

@@ -158,7 +158,41 @@ fn joined(words: Vec<String>) -> String {
     words.join(" ").trim().to_string()
 }
 
+/// The dev's subcommands, by the name the lock uses.
+fn dev_subcommand(command: &Cmd) -> Option<&'static str> {
+    match command {
+        Cmd::Ok { .. } => Some("ok"),
+        Cmd::No { .. } => Some("no"),
+        Cmd::Change { .. } => Some("change"),
+        Cmd::Size { .. } => Some("size"),
+        Cmd::Stop { .. } => Some("stop"),
+        _ => None,
+    }
+}
+
+/// The platform whose agent environment this process runs in, if any.
+fn agent_platform() -> Option<Box<dyn passo_adapters::Platform>> {
+    let env = |key: &str| std::env::var(key).ok();
+    passo_adapters::registry().into_iter().find(|p| p.agent_env(&env))
+}
+
+/// Dev decisions are refused inside an agent's environment, hooks or not: subagents run outside the hooks.
+/// `PASSO_DEV=1` is for the dev who runs the CLI in the agent's terminal on purpose.
+fn refuse_in_agent_env(command: &str) -> Result<()> {
+    if std::env::var("PASSO_DEV").is_ok_and(|v| v == "1") || agent_platform().is_none() {
+        return Ok(());
+    }
+    let reason = passo_core::lock::dev_command_refusal(command);
+    if let Ok(app) = App::open(&cwd()) {
+        app.record_denial(&reason, "cli");
+    }
+    Err(Rejected(reason).into())
+}
+
 fn run(command: Cmd) -> Result<String> {
+    if let Some(dev) = dev_subcommand(&command) {
+        refuse_in_agent_env(dev)?;
+    }
     match command {
         Cmd::Init { agents } => init(agents),
         Cmd::Sync => {
@@ -523,6 +557,12 @@ fn doctor() -> Result<String> {
         out.push_str(&format!(
             "Agentes do projeto: {}\n",
             custom.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    if let Some(platform) = agent_platform() {
+        out.push_str(&format!(
+            "\nAmbiente de agente: sim ({}). passo ok/no/change/size/stop são recusados aqui; PASSO_DEV=1 libera.\n",
+            platform.label()
         ));
     }
     let platforms: Vec<String> = app.platforms().iter().map(|p| p.label().to_string()).collect();

@@ -115,6 +115,9 @@ pub trait Platform: Send + Sync {
     fn label(&self) -> &'static str;
     /// Whether `passo init` already set this platform up in the project.
     fn installed(&self, root: &Path) -> bool;
+    /// Whether this process runs inside the platform's agent (its tools, its subagents). The environment comes in
+    /// as a lookup, so tests need not touch the process's variables.
+    fn agent_env(&self, env: &dyn Fn(&str) -> Option<String>) -> bool;
     /// The platform's model for a tier (`leve`, `forte`) when the config does not say.
     fn default_model(&self, tier: &str) -> Option<&'static str>;
     /// Writes the skill, the agents and the hooks into the project. Returns the files written.
