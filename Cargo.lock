@@ -435,6 +435,7 @@ dependencies = [
  "passo-adapters",
  "passo-app",
  "passo-core",
+ "passo-store",
  "passo-web",
  "serde_json",
 ]
