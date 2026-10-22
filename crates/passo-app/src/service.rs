@@ -544,10 +544,13 @@ impl App {
 
     /// A stopped run keeps its work on its branch, committed, and the dev goes back where they were.
     fn leave_branch(&self, run: &Run) -> Result<()> {
+        // The final run.json and log go to .passo/audit/ with or without git: the series survives either way.
         let Some(ws) = run.workspace.as_ref().filter(|_| self.uses_git(run)) else {
+            self.store.archive(&run.id)?;
             return Ok(());
         };
         let (Some(branch), Some(back)) = (ws.branch.as_ref(), ws.from.as_ref()) else {
+            self.store.archive(&run.id)?;
             return Ok(());
         };
         let git = self.git();
@@ -887,6 +890,15 @@ impl App {
     fn deliver(&self, run: &Run) -> Vec<EventDraft> {
         let map_paths = self.apply_map_checks(run);
         let Some(ws) = run.workspace.as_ref().filter(|_| self.uses_git(run)) else {
+            // No git to commit it in, but the copy still lands in .passo/audit/ for `stats --all`.
+            if let Err(e) = self.store.archive(&run.id) {
+                return vec![draft(
+                    run,
+                    "audit.unarchived",
+                    Actor::Passo,
+                    format!("O run não foi arquivado em .passo/audit/: {e}"),
+                )];
+            }
             return vec![draft(
                 run,
                 "delivered",

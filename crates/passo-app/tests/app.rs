@@ -1559,3 +1559,23 @@ fn discarded_lessons_are_seen_and_the_rest_come_back() {
     let left: Vec<String> = p.app().lessons().into_iter().map(|l| l.run_id).collect();
     assert_eq!(left, vec!["d2".to_string()]);
 }
+
+#[test]
+fn without_git_the_finished_run_is_archived_too() {
+    let p = Project::new("archive-nogit");
+    let config = std::fs::read_to_string(p.root.join(".passo/passo.yaml")).unwrap();
+    p.write(".passo/passo.yaml", &format!("{config}git:\n  mode: none\n"));
+    p.app().start("Trocar o título", Some(passo_core::Size::Pp)).unwrap();
+    p.write("src/lib.txt", "título novo\n");
+    p.done("título");
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    let id = p.app().store.latest().unwrap().id;
+    assert!(p.root.join(".passo/audit").join(&id).join("run.json").is_file());
+
+    p.app().start("Outra coisa", Some(passo_core::Size::Pp)).unwrap();
+    p.app().decide(DevAction::Stop(String::new()), Source::Cli).unwrap();
+    let stopped = p.app().store.latest().unwrap().id;
+    assert!(p.root.join(".passo/audit").join(&stopped).join("run.json").is_file());
+    std::fs::remove_dir_all(p.root.join(".passo/runs")).unwrap();
+    assert_eq!(p.app().stats_all(None).unwrap().runs.len(), 2);
+}
