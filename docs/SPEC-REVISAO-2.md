@@ -1,5 +1,7 @@
 # Spec: correções da revisão das specs MAPA, REVISAO e MELHORIAS
 
+> **Estado: executada em 2026-10-22**, nos commits `rev2-01` a `rev2-11` da main. Não rode de novo; o texto fica como registro das decisões.
+
 As três specs foram executadas (`mapa-00` a `mapa-06`, `rev-01` a `rev-10`, `mel-01` a `mel-07`) e revisadas item a item, com reproduções. As gates passam (fmt, clippy, 150 testes). Vinte e um itens atendem, com ressalvas em treze; **um não atende**: o lexer da trava (`mel-01`), que é contornável de cinco jeitos e, num deles, derruba o próprio hook.
 
 Regras de execução iguais às de `docs/SPEC.md`: um item por vez, na ordem; um commit por item com prefixo `rev2-NN`; as três gates antes de cada commit; `CLAUDE.md` vale. Os itens 01 a 03 são de segurança e vêm primeiro.
