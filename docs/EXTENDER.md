@@ -108,14 +108,20 @@ O comando de cobertura roda a suíte de novo: a verificação demora cerca do do
 
 ## Executores de teste
 
-O `rodar` de um passo (o comando que roda só o teste dele) é uma chamada simples a um executor de testes: sem `$(`, crase, `;`, `&&`, `||`, `|`, `>`, `<`, quebra de linha ou `\`, e começando por um programa permitido. Por padrão: `cargo`, `npm`, `pnpm`, `yarn`, `bun`, `node`, `pytest`, `python`, `go`, `make`, `just`, `mvn`, `gradle`, `dotnet`, `mix`, `bundle` e `rspec`, mais o programa de cada item de `checks.step` e `checks.final`. Para acrescentar:
+O `rodar` de um passo (o comando que roda só o teste dele) é uma chamada simples a um executor de testes: sem `$(`, crase, `;`, `&&`, `||`, `|`, `>`, `<`, quebra de linha ou `\`, sem variável de ambiente na frente, e começando por um programa permitido. Por padrão: `cargo`, `npm`, `pnpm`, `yarn`, `bun`, `node`, `pytest`, `python`, `go`, `make`, `just`, `mvn`, `gradle`, `dotnet`, `mix`, `bundle` e `rspec`, mais o programa de cada item de `checks.step` e `checks.final`. Para acrescentar:
 
 ```yaml
 tests:
-  runners: [cargo, npm, vitest]
+  runners: [vitest]          # soma aos padrões
+  # runners_only: true       # use só estes (e os das checagens)
 ```
 
-A lista substitui a padrão (listas substituem nas camadas), então repita os que quiser manter. A trava também é consultada, e o dev aprova os comandos junto com o plano.
+A trava também é consultada, e o dev aprova os comandos junto com o plano. O plano volta recusado com uma destas mensagens:
+
+- `` `passos[1].rodar` não pode ter `&&`: o comando de teste é uma chamada simples, sem shell `` (vale para cada símbolo da lista acima);
+- `` `passos[1].rodar` não pode ter variável de ambiente (FOO=1); configure em checks ou no comando de teste do projeto ``;
+- `` `passos[1].rodar` começa com `x`, que não é um executor de testes (permitidos: …; ou acrescente em tests.runners) ``;
+- `` `passos[1].rodar` não é uma chamada simples (variável, redirecionamento ou mais de um comando): o comando de teste é uma chamada simples, sem shell ``.
 
 ## Segredos no log
 

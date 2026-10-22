@@ -515,6 +515,11 @@ fn a_test_command_is_a_plain_call_to_a_test_runner() {
         refuse("vitest run x"),
         "the program is read without its path"
     );
+    let env = refuse("LD_PRELOAD=./x.so cargo test").unwrap();
+    assert!(
+        env.contains("não pode ter variável de ambiente (LD_PRELOAD=./x.so)"),
+        "{env}"
+    );
     let mut wider = Config::default();
     wider.tests.runners.push("vitest".into());
     assert_eq!(

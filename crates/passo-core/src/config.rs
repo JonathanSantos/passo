@@ -275,9 +275,17 @@ impl Default for Limits {
 pub struct Tests {
     /// Globs that count as test files.
     pub patterns: Vec<String>,
-    /// Programs a step's test command (`rodar`) may start with, besides the ones the checks use.
+    /// Programs a step's test command (`rodar`) may start with, on top of the usual ones and the checks' own.
     pub runners: Vec<String>,
+    /// Only `runners` (and the checks' programs), without the usual ones.
+    pub runners_only: bool,
 }
+
+/// Test runners a `rodar` may start with unless `tests.runners_only` says otherwise.
+pub const DEFAULT_RUNNERS: [&str; 17] = [
+    "cargo", "npm", "pnpm", "yarn", "bun", "node", "pytest", "python", "go", "make", "just", "mvn", "gradle", "dotnet",
+    "mix", "bundle", "rspec",
+];
 
 impl Default for Tests {
     fn default() -> Self {
@@ -285,12 +293,8 @@ impl Default for Tests {
             patterns: ["**/*test*", "**/*spec*", "**/tests/**", "**/test/**", "**/__tests__/**"]
                 .map(String::from)
                 .to_vec(),
-            runners: [
-                "cargo", "npm", "pnpm", "yarn", "bun", "node", "pytest", "python", "go", "make", "just", "mvn",
-                "gradle", "dotnet", "mix", "bundle", "rspec",
-            ]
-            .map(String::from)
-            .to_vec(),
+            runners: vec![],
+            runners_only: false,
         }
     }
 }
@@ -310,9 +314,19 @@ const SHELL_TOKENS: [(&str, &str); 10] = [
 ];
 
 impl Config {
-    /// Programs a test command may start with: `tests.runners` and the first word of every configured check.
+    /// Programs a test command may start with: the usual runners (unless `tests.runners_only`), `tests.runners` and
+    /// the first word of every configured check.
     pub fn test_runners(&self) -> Vec<String> {
-        let mut runners = self.tests.runners.clone();
+        let mut runners: Vec<String> = if self.tests.runners_only {
+            vec![]
+        } else {
+            DEFAULT_RUNNERS.map(String::from).to_vec()
+        };
+        for extra in &self.tests.runners {
+            if !runners.contains(extra) {
+                runners.push(extra.clone());
+            }
+        }
         for check in self.checks.step.iter().chain(&self.checks.final_) {
             if let Some(program) = check.split_whitespace().next() {
                 let program = program.rsplit('/').next().unwrap_or(program).to_string();
@@ -334,6 +348,12 @@ impl Config {
         // The same lexer the lock uses. The program is read first (the clearest reason), then the shape: one
         // command, no redirect, nothing it cannot read, no variable.
         let script = crate::shell::lex(command);
+        if let Some((name, value)) = script.commands.first().and_then(|c| c.assignments.first()) {
+            return Some(format!(
+                "`{field}` não pode ter variável de ambiente ({name}={}); configure em checks ou no comando de teste do projeto",
+                value.text
+            ));
+        }
         let program = script.commands.first().and_then(|c| c.program()).unwrap_or("");
         let runners = self.test_runners();
         if !runners.iter().any(|r| r == program) {

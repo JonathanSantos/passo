@@ -178,6 +178,28 @@ mod tests {
     }
 
     #[test]
+    fn test_runners_in_yaml_widen_the_usual_list() {
+        let dir = project("runners");
+        std::fs::write(dir.join(".passo/passo.yaml"), "tests:\n  runners: [vitest]\n").unwrap();
+        let config = load(&Layout::new(&dir)).unwrap().config;
+        let runners = config.test_runners();
+        assert!(
+            runners.contains(&"vitest".to_string()) && runners.contains(&"cargo".to_string()),
+            "{runners:?}"
+        );
+        assert_eq!(config.refuse_test_command("passos[0].rodar", "cargo test x"), None);
+
+        std::fs::write(
+            dir.join(".passo/passo.yaml"),
+            "tests:\n  runners: [vitest]\n  runners_only: true\n",
+        )
+        .unwrap();
+        let only = load(&Layout::new(&dir)).unwrap().config.test_runners();
+        assert_eq!(only, vec!["vitest".to_string()]);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn extends_relative_to_the_file_that_names_it() {
         let dir = project("relative");
         std::fs::create_dir_all(dir.join("shared/nested")).unwrap();
