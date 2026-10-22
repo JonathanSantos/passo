@@ -55,6 +55,17 @@ impl Platform for Copilot {
         false
     }
 
+    fn hook_command(&self, root: &Path, event: HookEvent) -> Option<String> {
+        let file = files::read_json(&root.join(".github/hooks/passo.json"));
+        let entries = file.get("hooks")?.get(event_name(event))?.as_array()?;
+        let marker = format!(" hook {} --platform copilot", event.id());
+        entries
+            .iter()
+            .filter_map(|e| e.get("command").or_else(|| e.get("bash"))?.as_str())
+            .find(|c| c.contains(&marker))
+            .map(str::to_string)
+    }
+
     fn installed(&self, root: &Path) -> bool {
         root.join(".github/skills/passo").exists()
     }

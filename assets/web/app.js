@@ -288,6 +288,17 @@
     if (s.run) sel.value = s.run.id;
     sel.disabled = !live;
     const audit = s.audit ? ("Ok" in s.audit ? `✓ auditoria íntegra · ${s.audit.Ok} eventos` : `✗ auditoria quebrada: ${esc(s.audit.Err)}`) : "";
+    let warn = document.getElementById("hookwarn");
+    if (!warn) {
+      warn = document.createElement("div");
+      warn.id = "hookwarn";
+      warn.className = "card";
+      warn.style.borderColor = "var(--warn)";
+      warn.style.color = "var(--warn)";
+      document.querySelector(".rail").after(warn);
+    }
+    warn.textContent = s.hook_warning || "";
+    warn.style.display = s.hook_warning ? "block" : "none";
     $("foot").innerHTML = `<span>${audit}</span><span>${s.platforms.length ? esc(s.platforms.join(" · ")) : ""}</span><span>${live ? "ao vivo" : "relatório gerado em " + new Date(s.generated_at).toLocaleString("pt-BR")}</span>`;
     document.title = s.run ? `${s.run.gate ? "● " : ""}${LABEL[s.run.stage]} · passo` : "passo";
   }

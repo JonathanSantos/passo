@@ -301,9 +301,11 @@ impl App {
             tree: tree.as_deref(),
             map: selection.as_ref(),
         });
-        match self.map_warning() {
-            Some(warning) => format!("{warning}\n{text}"),
-            None => text,
+        let warnings: Vec<String> = self.hook_warning(run).into_iter().chain(self.map_warning()).collect();
+        if warnings.is_empty() {
+            text
+        } else {
+            format!("{}\n{text}", warnings.join("\n"))
         }
     }
 
@@ -321,6 +323,31 @@ impl App {
                 )
             })
             .collect()
+    }
+
+    /// One line when hooks failed since the run began: the lock may not be holding.
+    pub fn hook_warning(&self, run: &Run) -> Option<String> {
+        let text = std::fs::read_to_string(self.layout.hook_errors()).ok()?;
+        let errors: Vec<serde_json::Value> = text
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .filter(|e| {
+                e.get("t")
+                    .and_then(|t| t.as_str())
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                    .is_some_and(|t| t >= run.created_at)
+            })
+            .collect();
+        let last = errors
+            .last()?
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("?")
+            .to_string();
+        Some(format!(
+            "⚠ {} erro(s) de hook neste run (último: {last}). A trava pode não estar valendo; rode passo doctor.",
+            errors.len()
+        ))
     }
 
     /// One line when the project map was ignored, for the dev and the agent.
@@ -533,6 +560,9 @@ impl App {
             return "Nenhum run ainda. No agente, peça algo \"com o passo\", ou rode: passo start \"pedido\"".into();
         };
         let mut out = format!("{}\n{}\n", run.headline(), render::rail(&run, &self.config));
+        if let Some(warning) = self.hook_warning(&run).filter(|_| run.active()) {
+            out = format!("{warning}\n{out}");
+        }
         let _ = std::fmt::Write::write_fmt(&mut out, format_args!("Pedido: {}\n", run.request));
         match run.turn() {
             Turn::Dev => {
@@ -1071,6 +1101,7 @@ impl App {
             }
             None => vec![],
         };
+        let hook_warning = run.as_ref().filter(|r| r.active()).and_then(|r| self.hook_warning(r));
         let snapshot = Snapshot {
             generated_at: self.clock.now(),
             project: self
@@ -1093,6 +1124,7 @@ impl App {
             checks_step: self.config.checks.step.clone(),
             checks_final: self.config.checks.final_.clone(),
             map_nodes,
+            hook_warning,
         };
         // Belt and braces: what the report and the dashboard show is redacted again, so an old log comes out clean.
         Ok(snapshot.redacted(|text| self.redact(text)))

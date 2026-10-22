@@ -37,11 +37,14 @@ impl Store {
         } else {
             current.clone()
         };
-        if !text.lines().any(|l| l.trim() == "map/.task.json") {
-            if !text.ends_with('\n') {
+        for line in ["map/.task.json", "hook-errors.log"] {
+            if !text.lines().any(|l| l.trim() == line) {
+                if !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                text.push_str(line);
                 text.push('\n');
             }
-            text.push_str("map/.task.json\n");
         }
         if text != current {
             std::fs::write(ignore, text)?;

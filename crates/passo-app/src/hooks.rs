@@ -33,9 +33,69 @@ pub fn handle(
             if std::env::var_os("PASSO_DEBUG").is_some() {
                 eprintln!("passo hook: {e:#}");
             }
+            // The hook still lets the call through (a broken hook must not trap the agent), but never silently.
+            let input = platform.parse_hook(event, &raw);
+            let candidates = [input.project_dir, input.cwd, Some(cwd.into())];
+            if let Some(layout) = candidates.into_iter().flatten().find_map(|dir| Layout::find(&dir)) {
+                record_failure(&layout, platform.id(), event, &format!("{e:#}"));
+            }
             None
         }
     }
+}
+
+/// Lines kept in `hook-errors.log`.
+const MAX_ERROR_LINES: usize = 200;
+
+/// Writes the failure where `passo next`, `status`, the dashboard and `doctor` see it. Uses only the layout: the
+/// app is often what failed to open (an invalid `passo.yaml`).
+fn record_failure(layout: &Layout, platform: &str, event: HookEvent, error: &str) {
+    let error = passo_core::redact::redact(error.lines().next().unwrap_or(error));
+    let path = layout.hook_errors();
+    let Ok(lock) = std::fs::File::create(path.with_extension("lock")) else {
+        return;
+    };
+    if lock.lock().is_err() {
+        return;
+    }
+    let line =
+        json!({ "t": chrono::Utc::now(), "event": event.id(), "platform": platform, "error": error }).to_string();
+    let mut lines: Vec<String> = std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    lines.push(line);
+    let skip = lines.len().saturating_sub(MAX_ERROR_LINES);
+    std::fs::write(&path, lines[skip..].join("\n") + "\n").ok();
+    drop(lock);
+
+    // Once per distinct reason, the run's own log says so too.
+    let store = passo_store::Store::new(layout.clone());
+    let Some(run) = store
+        .current_id()
+        .and_then(|id| store.load(&id).ok())
+        .filter(|r| r.active())
+    else {
+        return;
+    };
+    let log = store.log(&run.id);
+    let text = format!("Hook {} falhou: {error}", event.id());
+    if log
+        .read()
+        .map(|events| events.iter().any(|e| e.kind == "hook.failed" && e.text == text))
+        .unwrap_or(true)
+    {
+        return;
+    }
+    let draft = EventDraft {
+        kind: "hook.failed",
+        actor: Actor::Passo,
+        stage: run.stage,
+        text,
+        data: json!({ "platform": platform }),
+    };
+    log.append(&run.id, &[draft], chrono::Utc::now()).ok();
 }
 
 fn decide(

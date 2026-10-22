@@ -303,3 +303,68 @@ pub fn project_files(root: &Path, git: Option<&Git>) -> Vec<String> {
     out.sort();
     out
 }
+
+/// What a command printed when run with some input, and how long it took.
+pub struct Ran {
+    pub ok: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub ms: u64,
+}
+
+/// Runs `command` with `sh -c` in `dir`, writing `input` to its stdin, with only the given environment, killed past
+/// `timeout`. `None` when it could not start or ran out of time.
+pub fn run_with_input(
+    command: &str,
+    dir: &Path,
+    input: &str,
+    env: &[(&str, String)],
+    timeout: Duration,
+) -> Option<Ran> {
+    use std::io::Write;
+    let started = Instant::now();
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .current_dir(dir)
+        .env_clear()
+        .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input.as_bytes()).ok();
+    }
+    let mut stdout = child.stdout.take()?;
+    let mut stderr = child.stderr.take()?;
+    let out = std::thread::spawn(move || {
+        let mut buf = String::new();
+        stdout.read_to_string(&mut buf).ok();
+        buf
+    });
+    let err = std::thread::spawn(move || {
+        let mut buf = String::new();
+        stderr.read_to_string(&mut buf).ok();
+        buf
+    });
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() > timeout => {
+                child.kill().ok();
+                child.wait().ok();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(_) => return None,
+        }
+    };
+    Some(Ran {
+        ok: status.success(),
+        stdout: out.join().unwrap_or_default(),
+        stderr: err.join().unwrap_or_default(),
+        ms: started.elapsed().as_millis() as u64,
+    })
+}

@@ -115,6 +115,9 @@ pub trait Platform: Send + Sync {
     fn label(&self) -> &'static str;
     /// Whether `passo init` already set this platform up in the project.
     fn installed(&self, root: &Path) -> bool;
+    /// The command `install` wrote for a hook event, read back from the platform's own file (`None` when the event
+    /// is missing or its matcher is not the one Passo needs). `passo doctor` runs it.
+    fn hook_command(&self, root: &Path, event: HookEvent) -> Option<String>;
     /// Whether this process runs inside the platform's agent (its tools, its subagents). The environment comes in
     /// as a lookup, so tests need not touch the process's variables.
     fn agent_env(&self, env: &dyn Fn(&str) -> Option<String>) -> bool;

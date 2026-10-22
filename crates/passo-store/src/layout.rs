@@ -58,6 +58,10 @@ impl Layout {
     pub fn map_log(&self) -> PathBuf {
         self.project_map().join("log.jsonl")
     }
+    /// Hook failures, newest last (out of git, at most 200 lines).
+    pub fn hook_errors(&self) -> PathBuf {
+        self.passo().join("hook-errors.log")
+    }
     pub fn context(&self) -> PathBuf {
         self.passo().join("context.md")
     }

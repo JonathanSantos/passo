@@ -78,6 +78,12 @@ Use `--agent copilot`, ou `--agent ambos`. O `init` detecta a stack, escolhe as 
 
 > com o passo, adicione prioridade às tarefas
 
+Confira que a trava está valendo (o `doctor` roda o hook de verdade e prova que ele nega um `passo ok` do agente):
+
+```bash
+passo doctor
+```
+
 Para acompanhar, abra o painel em outro terminal:
 
 ```bash

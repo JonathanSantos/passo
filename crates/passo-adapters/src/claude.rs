@@ -57,6 +57,26 @@ impl Platform for Claude {
         env("CLAUDECODE").is_some_and(|v| !v.is_empty())
     }
 
+    fn hook_command(&self, root: &Path, event: HookEvent) -> Option<String> {
+        let settings = files::read_json(&root.join(".claude/settings.json"));
+        let entries = settings.get("hooks")?.get(event_name(event))?.as_array()?;
+        let marker = format!(" hook {} --platform claude", event.id());
+        let entry = entries.iter().find(|e| e.to_string().contains(&marker))?;
+        let expected = match event {
+            HookEvent::PreToolUse => Some(GUARDED_TOOLS),
+            HookEvent::SessionStart => Some("startup|resume|clear|compact"),
+            _ => None,
+        };
+        if expected.is_some() && entry.get("matcher").and_then(Value::as_str) != expected {
+            return None;
+        }
+        entry
+            .get("hooks")?
+            .as_array()?
+            .iter()
+            .find_map(|h| h.get("command")?.as_str().map(str::to_string))
+    }
+
     fn installed(&self, root: &Path) -> bool {
         root.join(".claude/skills/passo").exists()
     }

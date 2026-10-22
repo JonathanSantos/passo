@@ -1121,3 +1121,31 @@ fn secrets_stay_out_of_the_log_the_run_and_the_report() {
     let snapshot = serde_json::to_string(&app.snapshot(None).unwrap()).unwrap();
     assert!(!snapshot.contains("0123456789abcdef0123") && !snapshot.contains("abc123def456"));
 }
+
+#[test]
+fn a_failing_hook_is_recorded_and_announced() {
+    let p = Project::new("hook-fail");
+    p.app().start("Algo médio", None).unwrap();
+    let config = p.root.join(".passo/passo.yaml");
+    let good = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(&config, format!("{good}chave_errada: 1\n")).unwrap();
+    let reply = p.hook(
+        HookEvent::PreToolUse,
+        tool(&p.root, "Write", serde_json::json!({"file_path": "src/x.txt"})),
+    );
+    assert_eq!(reply, None, "a broken hook still lets the call through");
+    let errors = std::fs::read_to_string(p.root.join(".passo/hook-errors.log")).unwrap();
+    assert!(
+        errors.contains("chave_errada") && errors.contains("pre-tool-use"),
+        "{errors}"
+    );
+    std::fs::write(&config, good).unwrap();
+    let out = p.app().next().unwrap();
+    assert!(
+        out.starts_with("⚠ 1 erro(s) de hook neste run") && out.contains("passo doctor"),
+        "{out}"
+    );
+    let run = p.app().active().unwrap();
+    let log = std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("events.jsonl")).unwrap();
+    assert_eq!(log.matches("\"hook.failed\"").count(), 1);
+}

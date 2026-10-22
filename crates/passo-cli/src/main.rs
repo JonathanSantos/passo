@@ -309,7 +309,7 @@ fn init(agents: Vec<String>) -> Result<String> {
     ));
     if !ids.is_empty() {
         out.push_str(&format!(
-            "\nCommite esses arquivos, abra uma sessão nova do agente ({}) e peça \"com o passo, …\".\nAcompanhe com: passo ui\n",
+            "\nCommite esses arquivos, abra uma sessão nova do agente ({}) e peça \"com o passo, …\".\nAcompanhe com: passo ui\nConfira com: passo doctor\n",
             ids.join(", ")
         ));
     }
@@ -593,6 +593,9 @@ fn doctor() -> Result<String> {
             "vazio (preencha .passo/context.md)"
         }
     ));
+    for line in passo_app::doctor::check_hooks(&app) {
+        out.push_str(&format!("{line}\n"));
+    }
     out.push_str(&format!("Mapa do projeto: {}\n", app.map_summary()));
     for warning in app.attached_warnings() {
         out.push_str(&format!("  {}\n", warning.trim_start_matches("Aviso: ")));
