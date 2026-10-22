@@ -417,6 +417,8 @@ impl<'a> Engine<'a> {
             fix: false,
             summary: String::new(),
             commit: None,
+            changed: vec![],
+            reviewed: false,
         }));
         run.criteria = plan
             .criteria
@@ -566,6 +568,7 @@ impl<'a> Engine<'a> {
 
         if let Some(current) = run.current_step_mut() {
             current.summary = facts.summary.clone();
+            current.changed = facts.files.clone();
         }
         if let Some(note) = facts.note.as_ref().filter(|n| !n.trim().is_empty()) {
             run.notes.push(format!("{}: {}", step.id, note.trim()));
@@ -759,6 +762,7 @@ impl<'a> Engine<'a> {
                 "a revisão só é entregue em Verificar, depois das checagens finais".into(),
             ));
         }
+        check_new_steps(run, &review).map_err(FlowError::Invalid)?;
         run.map_checks = review.map.clone();
         for item in &review.criteria {
             if let Some(criterion) = run.criteria.iter_mut().find(|c| c.id == item.id) {
@@ -767,7 +771,7 @@ impl<'a> Engine<'a> {
             }
         }
         // A criterion the review could not confirm is fixed with a test that proves it.
-        let failing: Vec<Fix> = run
+        let mut failing: Vec<Fix> = run
             .criteria
             .iter()
             .filter(|c| c.ok == Some(false))
@@ -787,6 +791,13 @@ impl<'a> Engine<'a> {
             })
             .collect();
         let ok = run.criteria.len() - failing.len();
+        // A step done since the last review that the reviewer says is off goes back as its own fix.
+        for item in review.steps.iter().filter(|i| !i.ok) {
+            failing.push(Fix::plain(format!("Corrigir {}", item.id), item.evidence.clone()));
+        }
+        for step in run.steps.iter_mut().filter(|s| s.status == StepStatus::Done) {
+            step.reviewed = true;
+        }
         out.event(
             run,
             "review.submitted",
@@ -1241,6 +1252,40 @@ impl Outcome {
     }
 }
 
+/// After a fix, the review has to read what changed: an item in `passos` for each step done since the last review,
+/// citing a file that step changed. A review copied from the round before has no such item.
+fn check_new_steps(run: &Run, review: &Review) -> Result<(), Invalid> {
+    let mut problems = vec![];
+    for step in run.unreviewed_steps() {
+        let files = if step.changed.is_empty() {
+            "nenhum arquivo mudou".to_string()
+        } else {
+            step.changed.join(", ")
+        };
+        let Some(item) = review.steps.iter().find(|i| i.id == step.id) else {
+            problems.push(format!(
+                "falta `passos`: {} foi feito depois da última revisão ({}). Leia o diff dele e diga se faz o que pediu (`ok`), citando em `evidencia` os arquivos que mudou ({files})",
+                step.id, step.title
+            ));
+            continue;
+        };
+        if step.changed.is_empty() {
+            continue;
+        }
+        if !step.changed.iter().any(|file| item.evidence.contains(file.as_str())) {
+            problems.push(format!(
+                "`passos` ({}): a evidência não cita nenhum arquivo que o passo mudou ({files})",
+                step.id
+            ));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(Invalid(problems))
+    }
+}
+
 /// A correction step that verify or a rejected delivery asks for.
 struct Fix {
     title: String,
@@ -1283,6 +1328,8 @@ fn add_fix_steps(run: &mut Run, fixes: Vec<Fix>) {
             fix: true,
             summary: String::new(),
             commit: None,
+            changed: vec![],
+            reviewed: false,
         });
     }
 }

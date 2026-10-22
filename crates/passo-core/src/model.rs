@@ -214,6 +214,12 @@ pub struct Step {
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
+    /// Files the step actually changed, as git saw them when it was done.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed: Vec<String>,
+    /// A review already covered this step.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reviewed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -428,6 +434,18 @@ impl Run {
             (Status::Active, None) => Turn::Agent,
             _ => Turn::None,
         }
+    }
+
+    /// Steps done since the last review, once there was one: the next review has to read them. The first review
+    /// covers everything through the criteria.
+    pub fn unreviewed_steps(&self) -> Vec<&Step> {
+        if !self.steps.iter().any(|s| s.reviewed) {
+            return vec![];
+        }
+        self.steps
+            .iter()
+            .filter(|s| s.status == StepStatus::Done && !s.reviewed)
+            .collect()
     }
 
     pub fn current_step(&self) -> Option<&Step> {

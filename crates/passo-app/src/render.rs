@@ -358,6 +358,37 @@ fn hand_in(view: &View) -> String {
                     passo_core::spec::REVIEW_MAP_TEMPLATE
                 ));
             }
+            let new_steps = run.unreviewed_steps();
+            if !new_steps.is_empty() {
+                let lines: Vec<String> = new_steps
+                    .iter()
+                    .map(|s| {
+                        let commit = s
+                            .commit
+                            .as_deref()
+                            .map(|c| format!(" [{}]", &c[..c.len().min(7)]))
+                            .unwrap_or_default();
+                        let files = if s.changed.is_empty() {
+                            "nenhum arquivo".to_string()
+                        } else {
+                            s.changed.join(", ")
+                        };
+                        format!("- {} {}{commit}: {files}", s.id, s.title)
+                    })
+                    .collect();
+                out.push_str(&format!(
+                    "
+Depois da última revisão foram feitos estes passos. Leia o diff de cada um (`git show <commit>`) e inclua `passos`, um item por passo, com `ok` e uma `evidencia` que cite os arquivos que ele mudou. Uma revisão anterior reaproveitada não serve.
+{}
+
+```json
+{}
+```
+",
+                    lines.join("\n"),
+                    passo_core::spec::REVIEW_STEPS_TEMPLATE
+                ));
+            }
             out
         }
         Stage::Entregar => String::new(),

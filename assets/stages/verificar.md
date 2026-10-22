@@ -5,7 +5,8 @@ agent: revisor
 2. Para cada critério: procure a evidência e escreva-a em `evidencia` com referências que existam no projeto: `arquivo:linha` (ou só o arquivo) e o nome do teste entre crases, como `tests/x_test.rs:12 \`prova_tal\`; src/x.rs:42`. O Passo confere cada referência: arquivo que não existe, linha além do fim do arquivo ou teste que ninguém escreveu fazem a revisão voltar para você.
 3. Procure o caso que nenhum teste cobre e anote em `observacoes`. Se o contexto trouxe a cobertura do diff, comece pelas linhas mudadas que nenhum teste executa: um critério que depende delas não tem evidência de teste.
 4. Se o contexto trouxe áreas do mapa do projeto, confira cada uma contra o diff: a descrição continua certa? Responda em `mapa`, com `ok` e, quando não, uma `nota` dizendo o que mudou.
-5. Entregue a revisão em JSON.
+5. Se o contexto listar passos feitos depois da última revisão (correções ou ajustes pedidos pelo dev), leia o diff de cada um e responda em `passos`, citando os arquivos que ele mudou. Revisão anterior reaproveitada volta recusada.
+6. Entregue a revisão em JSON.
 
 ## m
 Aplique os checklists do domínio que aparecem no contexto.

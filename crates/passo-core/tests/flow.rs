@@ -270,11 +270,22 @@ fn review_failures_become_fix_steps_until_the_round_limit() {
         .unwrap();
     sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/b.rs"], true)))
         .unwrap();
-    let failing = r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"ok"},{"id":"C2","ok":false,"evidencia":"sem filtro vazio"}]}"#;
     let criteria = vec!["C1".to_string(), "C2".to_string()];
+    // Each round reads the fix steps done since the round before.
+    let failing = |run: &Run| {
+        let steps: Vec<String> = run
+            .unreviewed_steps()
+            .iter()
+            .map(|s| format!(r#"{{"id":"{}","ok":true,"evidencia":"src/f.rs mudou"}}"#, s.id))
+            .collect();
+        let json = format!(
+            r#"{{"criterios":[{{"id":"C1","ok":true,"evidencia":"ok"}},{{"id":"C2","ok":false,"evidencia":"sem filtro vazio"}}],"passos":[{}]}}"#,
+            steps.join(",")
+        );
+        parse_review(&json, &criteria, &[]).unwrap()
+    };
     for round in 1..=2 {
-        sim.apply(Command::SubmitReview(parse_review(failing, &criteria, &[]).unwrap()))
-            .unwrap();
+        sim.apply(Command::SubmitReview(failing(&sim.run))).unwrap();
         assert_eq!(sim.run.stage, Stage::Construir);
         assert!(sim.run.current_step().unwrap().fix);
         assert_eq!(sim.run.rounds, round);
@@ -285,8 +296,7 @@ fn review_failures_become_fix_steps_until_the_round_limit() {
         sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/c.rs"], true)))
             .unwrap();
     }
-    sim.apply(Command::SubmitReview(parse_review(failing, &criteria, &[]).unwrap()))
-        .unwrap();
+    sim.apply(Command::SubmitReview(failing(&sim.run))).unwrap();
     assert_eq!(sim.gate(), GateKind::Travado);
     assert_eq!(sim.run.stage, Stage::Construir);
     assert_eq!(
@@ -846,4 +856,78 @@ fn unmeasured_coverage_is_skipped_and_the_proof_stays_medium() {
     assert!(sim.events.iter().any(|e| e.kind == "coverage.skipped"));
     review_all_ok(&mut sim);
     assert_eq!(sim.run.proof, Some(Proof::Media));
+}
+
+#[test]
+fn after_a_fix_the_review_has_to_read_the_new_steps() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::P);
+    to_build(&mut sim);
+    sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
+        .unwrap();
+    sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/b.rs"], true)))
+        .unwrap();
+    let criteria = vec!["C1".to_string(), "C2".to_string()];
+    let all_ok = r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"tests/a.rs"},{"id":"C2","ok":true,"evidencia":"tests/b.rs"}]}"#;
+    // The first review covers everything through the criteria.
+    sim.apply(Command::SubmitReview(parse_review(all_ok, &criteria, &[]).unwrap()))
+        .unwrap();
+    assert_eq!(sim.gate(), GateKind::Aceitar);
+    assert!(sim.run.steps.iter().all(|s| s.reviewed));
+
+    // The dev asks for an adjustment; the same review again is refused.
+    sim.apply(Command::Reject("ignore os .tsbuildinfo".into())).unwrap();
+    sim.apply(Command::StepDone(facts(
+        &[".gitignore", "web/tsconfig.tsbuildinfo"],
+        false,
+    )))
+    .unwrap();
+    assert!(sim.run.reviewing);
+    let err = sim
+        .apply(Command::SubmitReview(parse_review(all_ok, &criteria, &[]).unwrap()))
+        .unwrap_err();
+    assert!(
+        matches!(&err, FlowError::Invalid(i) if i.0[0].contains("falta `passos`: S3")),
+        "{err:?}"
+    );
+
+    // An item that cites nothing the step changed is refused too.
+    let vague = r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"tests/a.rs"},{"id":"C2","ok":true,"evidencia":"tests/b.rs"}],
+      "passos":[{"id":"S3","ok":true,"evidencia":"feito"}]}"#;
+    let err = sim
+        .apply(Command::SubmitReview(parse_review(vague, &criteria, &[]).unwrap()))
+        .unwrap_err();
+    assert!(
+        matches!(&err, FlowError::Invalid(i) if i.0[0].contains(".gitignore")),
+        "{err:?}"
+    );
+
+    let read = r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"tests/a.rs"},{"id":"C2","ok":true,"evidencia":"tests/b.rs"}],
+      "passos":[{"id":"S3","ok":true,"evidencia":".gitignore:4 ignora *.tsbuildinfo"}]}"#;
+    sim.apply(Command::SubmitReview(parse_review(read, &criteria, &[]).unwrap()))
+        .unwrap();
+    assert_eq!(sim.gate(), GateKind::Aceitar);
+}
+
+#[test]
+fn a_new_step_the_review_flags_goes_back_as_a_fix() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::P);
+    to_build(&mut sim);
+    sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
+        .unwrap();
+    sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/b.rs"], true)))
+        .unwrap();
+    let criteria = vec!["C1".to_string(), "C2".to_string()];
+    let all_ok = r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"a"},{"id":"C2","ok":true,"evidencia":"b"}]}"#;
+    sim.apply(Command::SubmitReview(parse_review(all_ok, &criteria, &[]).unwrap()))
+        .unwrap();
+    sim.apply(Command::Reject("ajuste o filtro".into())).unwrap();
+    sim.apply(Command::StepDone(facts(&["src/f.rs"], false))).unwrap();
+    let flagged = r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"a"},{"id":"C2","ok":true,"evidencia":"b"}],
+      "passos":[{"id":"S3","ok":false,"evidencia":"src/f.rs:10 o filtro ainda ignora maiúsculas"}]}"#;
+    sim.apply(Command::SubmitReview(parse_review(flagged, &criteria, &[]).unwrap()))
+        .unwrap();
+    assert_eq!(sim.run.stage, Stage::Construir);
+    assert_eq!(sim.run.current_step().unwrap().title, "Corrigir S3");
 }

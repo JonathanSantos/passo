@@ -105,6 +105,9 @@ pub struct Review {
     /// Whether each project map area the reviewer was shown still describes the code after this run.
     #[serde(default)]
     pub map: Vec<MapCheck>,
+    /// The steps done since the last review, one item each (the flow checks which ones are due).
+    #[serde(default)]
+    pub steps: Vec<ReviewItem>,
 }
 
 /// The reviewer's word on one area of the project map.
@@ -471,10 +474,25 @@ pub fn parse_review(text: &str, criteria: &[String], map_areas: &[String]) -> Re
             r.errors.push(format!("falta a área {id} em `mapa`"));
         }
     }
+    let mut steps = vec![];
+    for (i, s) in r.objects(&root, "", "passos", false).into_iter().enumerate() {
+        let path = format!("passos[{i}]");
+        let id = r.text(s, &path, "id", true).to_uppercase();
+        let ok = match s.get("ok") {
+            Some(Value::Bool(b)) => *b,
+            _ => {
+                r.errors.push(format!("`{path}.ok` deve ser true ou false"));
+                true
+            }
+        };
+        let evidence = r.text(s, &path, "evidencia", true);
+        steps.push(ReviewItem { id, ok, evidence });
+    }
     r.finish(Review {
         criteria: items,
         notes,
         map,
+        steps,
     })
 }
 
@@ -540,7 +558,14 @@ fn path_ref(word: &str) -> Option<EvidenceRef> {
     let extension = path.rsplit_once('.').is_some_and(|(stem, ext)| {
         !stem.is_empty() && (1..=6).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric())
     });
-    (path.contains('/') || extension).then(|| EvidenceRef {
+    // A dotfile (`.gitignore`) and a folder (`src/`, refused later with a clear message) are paths. A slash alone is
+    // not (`npm run install/dev/build`): without an extension it takes a line number (`bin/passo:3`).
+    let dotfile = path
+        .strip_prefix('.')
+        .and_then(|rest| rest.chars().next())
+        .is_some_and(|c| c.is_ascii_alphabetic());
+    let folder = path.len() > 1 && path.ends_with('/');
+    (extension || dotfile || folder || (path.contains('/') && line.is_some())).then(|| EvidenceRef {
         path: Some(path.to_string()),
         line,
         symbol: None,
@@ -624,6 +649,10 @@ pub const PLAN_TEMPLATE: &str = r#"{
 /// The `mapa` part of a review, shown only when the reviewer was given map areas.
 pub const REVIEW_MAP_TEMPLATE: &str = r#""mapa": [
     { "id": "tarefas", "ok": true, "nota": "" }
+  ]"#;
+
+pub const REVIEW_STEPS_TEMPLATE: &str = r#""passos": [
+    { "id": "S15", "ok": true, "evidencia": ".gitignore:4 ignora *.tsbuildinfo; o arquivo saiu do git" }
   ]"#;
 
 pub const REVIEW_TEMPLATE: &str = r#"{
@@ -1167,6 +1196,13 @@ mod tests {
         assert!(refs.iter().any(|r| r.symbol.as_deref() == Some("prioridade padrão")));
         assert!(evidence_refs("rodei o comando e funcionou").is_empty());
         assert!(evidence_refs("veja https://exemplo.com/x.html").is_empty());
+        // A slash alone is not a path; a dotfile is.
+        assert!(evidence_refs("npm run install/dev/build passa").is_empty());
+        let paths: Vec<Option<String>> = evidence_refs(".gitignore:4; bin/passo:3; src/x")
+            .into_iter()
+            .map(|r| r.path)
+            .collect();
+        assert_eq!(paths, vec![Some(".gitignore".into()), Some("bin/passo".into())]);
     }
 
     #[test]
