@@ -719,3 +719,108 @@ pub fn map_task(view: &MapView) -> String {
     );
     out
 }
+
+pub struct LearnView<'a> {
+    pub agent: Option<&'a passo_store::AgentDef>,
+    pub delegation: &'a str,
+    /// Recurrent groups first.
+    pub groups: &'a [passo_core::learn::Group],
+    pub context: Option<&'a str>,
+    /// Map areas the lessons' files fall in.
+    pub areas: &'a [&'a passo_core::map::Node],
+    /// Every area a proposal may go to.
+    pub all_areas: &'a [String],
+    pub agents: &'a [String],
+    pub template: &'a str,
+    pub bin: &'a str,
+}
+
+pub fn learn_task(view: &LearnView) -> String {
+    let mut out = String::from("passo · aprender com os runs · vez do agente\n\n");
+    if let Some(agent) = view.agent {
+        let _ = writeln!(out, "# Agente: {}\n{}\n", agent.name, view.delegation);
+        let _ = writeln!(out, "## Papel\n{}\n", agent.body.trim());
+    }
+    out.push_str(
+        "## Tarefa: aprender com os runs\n\
+         As lições abaixo são o que o dev corrigiu em runs passados: recusas, mudanças no pedido, dicas e respostas diferentes da recomendada.\n\
+         1. Comece pelos grupos que se repetem em mais de um run: são o que o dev não quer corrigir de novo.\n\
+         2. Para cada coisa que vale virar regra, escreva uma frase só (até 160 caracteres), no tom de uma convenção do projeto.\n\
+         3. Escolha o `destino`: `context` (vale para todo o projeto), `mapa:<área>` (vale para uma área) ou `agente:<agente>` (muda como um agente trabalha).\n\
+         4. Em `fontes`, copie a linha `run …: …: …` das lições que sustentam a proposta.\n\
+         5. Até 10 propostas; deixe de fora o que foi de um run só e não se repete. Só leia: nada de escrever no projeto.\n\n",
+    );
+    for (i, group) in view.groups.iter().enumerate() {
+        let title = if group.recurrent {
+            let runs: std::collections::BTreeSet<&str> = group.lessons.iter().map(|l| l.run_id.as_str()).collect();
+            format!("## Grupo {} · se repete em {} runs", i + 1, runs.len())
+        } else if group.lessons.len() > 1 {
+            format!("## Grupo {} · um run só", i + 1)
+        } else {
+            format!("## Lição solta {}", i + 1)
+        };
+        let _ = writeln!(out, "{title}");
+        for lesson in &group.lessons {
+            let files = if lesson.files.is_empty() {
+                String::new()
+            } else {
+                format!(" · arquivos: {}", lesson.files.join(", "))
+            };
+            let _ = writeln!(
+                out,
+                "- {}\n  {} · {}{files}",
+                lesson.source(),
+                lesson.at.format("%d/%m/%Y"),
+                lesson.stage.label()
+            );
+        }
+        out.push('\n');
+    }
+    match view.context.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(context) => {
+            let _ = writeln!(
+                out,
+                "## Convenções do projeto hoje (.passo/context.md; não repita)\n{context}\n"
+            );
+        }
+        None => out.push_str("## Convenções do projeto hoje\n(nenhuma ainda)\n\n"),
+    }
+    if !view.areas.is_empty() {
+        out.push_str("## Áreas do mapa que essas lições tocam\n");
+        for area in view.areas {
+            let _ = writeln!(out, "### {}\n{}\n", area.id, area.body.trim());
+        }
+    }
+    let areas = if view.all_areas.is_empty() {
+        "o projeto não tem mapa: não use `mapa:`".to_string()
+    } else {
+        view.all_areas.join(", ")
+    };
+    let _ = writeln!(
+        out,
+        "Destinos que existem · áreas: {areas} · agentes: {}\n",
+        view.agents.join(", ")
+    );
+    let _ = writeln!(
+        out,
+        "## Como entregar\nEscreva este JSON num arquivo temporário e rode `{} done <arquivo>`. O dev escolhe depois quais propostas aplicar.\n\n```json\n{}\n```",
+        view.bin, view.template
+    );
+    out
+}
+
+/// The numbered list the dev decides on.
+pub fn learn_proposals(proposals: &[passo_core::spec::Proposal], bin: &str) -> String {
+    let mut out = String::from("passo · aprender com os runs · vez do dev\n\nPropostas:\n");
+    for (i, p) in proposals.iter().enumerate() {
+        let _ = writeln!(out, "{}. {} → {}", i + 1, p.text, p.target.label());
+        for source in &p.sources {
+            let _ = writeln!(out, "   fonte: {source}");
+        }
+    }
+    let _ = writeln!(
+        out,
+        "\nO dev aplica com `{bin} learn --apply 1,3` (ou todas) e descarta com `{bin} learn --cancel`."
+    );
+    out
+}

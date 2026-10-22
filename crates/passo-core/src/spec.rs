@@ -928,9 +928,185 @@ pub const MAP_TEMPLATE: &str = r#"{
   ]
 }"#;
 
+/// Where an approved lesson goes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", tag = "tipo", content = "nome")]
+pub enum LearnTarget {
+    Context,
+    Mapa(String),
+    Agente(String),
+}
+
+impl LearnTarget {
+    pub fn label(&self) -> String {
+        match self {
+            LearnTarget::Context => "context".into(),
+            LearnTarget::Mapa(area) => format!("mapa:{area}"),
+            LearnTarget::Agente(agent) => format!("agente:{agent}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Proposal {
+    pub text: String,
+    pub target: LearnTarget,
+    /// The sources as the agent wrote them.
+    pub sources: Vec<String>,
+    /// Fingerprints of the lessons the sources point to.
+    pub lessons: Vec<String>,
+}
+
+pub const MAX_PROPOSALS: usize = 10;
+pub const MAX_PROPOSAL_CHARS: usize = 160;
+
+/// Parses what `passo learn` asked for: short proposals, each going somewhere that exists and citing a real lesson.
+pub fn parse_learn(
+    text: &str,
+    lessons: &[crate::learn::Lesson],
+    areas: &[String],
+    agents: &[String],
+) -> Result<Vec<Proposal>, Invalid> {
+    let root = extract_json(text)?;
+    if !root.is_object() {
+        return Err(Invalid(vec!["a entrega deve ser um objeto JSON".into()]));
+    }
+    let mut r = Reader::new(&root);
+    let raw = r.objects(&root, "", "propostas", true);
+    if raw.len() > MAX_PROPOSALS {
+        r.errors.push(format!(
+            "`propostas` tem {} itens; use até {MAX_PROPOSALS}: fique com as que se repetem",
+            raw.len()
+        ));
+    }
+    let mut out = vec![];
+    for (i, p) in raw.into_iter().enumerate() {
+        let path = format!("propostas[{i}]");
+        let text = r.text(p, &path, "texto", true);
+        let destino = r.text(p, &path, "destino", true);
+        let sources = r.list(p, &path, "fontes", true);
+        let chars = text.chars().count();
+        if chars > MAX_PROPOSAL_CHARS {
+            r.errors.push(format!(
+                "`{path}.texto` tem {chars} caracteres; use até {MAX_PROPOSAL_CHARS}"
+            ));
+        }
+        if !text.is_empty() && sentences(&text) > 1 {
+            r.errors.push(format!("`{path}.texto` deve ser uma frase só"));
+        }
+        let target = match destino.split_once(':') {
+            _ if destino.is_empty() => LearnTarget::Context,
+            None if destino == "context" => LearnTarget::Context,
+            Some(("mapa", area)) if areas.iter().any(|a| a == area.trim()) => LearnTarget::Mapa(area.trim().into()),
+            Some(("mapa", area)) => {
+                let known = if areas.is_empty() {
+                    "o projeto não tem mapa".to_string()
+                } else {
+                    format!("use uma de {}", areas.join(", "))
+                };
+                r.errors.push(format!(
+                    "`{path}.destino` cita a área `{}`, que não existe; {known}",
+                    area.trim()
+                ));
+                LearnTarget::Context
+            }
+            Some(("agente", agent)) if agents.iter().any(|a| a == agent.trim()) => {
+                LearnTarget::Agente(agent.trim().into())
+            }
+            Some(("agente", agent)) => {
+                r.errors.push(format!(
+                    "`{path}.destino` cita o agente `{}`, que não existe; use um de {}",
+                    agent.trim(),
+                    agents.join(", ")
+                ));
+                LearnTarget::Context
+            }
+            _ => {
+                r.errors.push(format!(
+                    "`{path}.destino` deve ser `context`, `mapa:<área>` ou `agente:<agente>`"
+                ));
+                LearnTarget::Context
+            }
+        };
+        let mut cited: Vec<String> = vec![];
+        for source in &sources {
+            if let Some(lesson) = crate::learn::cited(lessons, source)
+                && !cited.contains(&lesson.fingerprint)
+            {
+                cited.push(lesson.fingerprint.clone());
+            }
+        }
+        if !sources.is_empty() && cited.is_empty() {
+            r.errors.push(format!(
+                "`{path}.fontes` não cita nenhuma lição da lista; copie a linha `run …: …: …` de pelo menos uma"
+            ));
+        }
+        out.push(Proposal {
+            text,
+            target,
+            sources,
+            lessons: cited,
+        });
+    }
+    r.finish(out)
+}
+
+pub const LEARN_TEMPLATE: &str = r#"{
+  "propostas": [
+    {
+      "texto": "Listagens de CLI saem em ordem de criação, nunca alfabética",
+      "destino": "context",
+      "fontes": ["run prioridade-tarefas-3f2a: recusa: a lista veio em ordem alfabética"]
+    },
+    { "texto": "...", "destino": "mapa:tarefas", "fontes": ["run ...: dica: ..."] },
+    { "texto": "...", "destino": "agente:construtor", "fontes": ["run ...: mudança no pedido: ..."] }
+  ]
+}"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn learn_proposals_go_somewhere_real_and_cite_a_lesson() {
+        let lesson = crate::learn::Lesson {
+            fingerprint: String::new(),
+            kind: crate::learn::LessonKind::Recusa,
+            text: "veio em ordem alfabética".into(),
+            run_id: "r1".into(),
+            at: chrono::Utc::now(),
+            stage: crate::Stage::Entregar,
+            files: vec![],
+        };
+        let lesson = crate::learn::Lesson {
+            fingerprint: crate::flow::fnv(lesson.source().as_bytes()),
+            ..lesson
+        };
+        let lessons = [lesson.clone()];
+        let agents = ["construtor".to_string()];
+        let ok = format!(
+            r#"{{"propostas":[{{"texto":"Ordem de criação","destino":"agente:construtor","fontes":["{}"]}}]}}"#,
+            lesson.fingerprint
+        );
+        let parsed = parse_learn(&ok, &lessons, &[], &agents).unwrap();
+        assert_eq!(parsed[0].target, LearnTarget::Agente("construtor".into()));
+        assert_eq!(parsed[0].lessons, vec![lesson.fingerprint.clone()]);
+
+        let long = "x".repeat(161);
+        let bad = format!(
+            r#"{{"propostas":[{{"texto":"Uma. Duas.","destino":"agente:ninguem","fontes":["inventada"]}},{{"texto":"{long}","destino":"mapa:x","fontes":["run r1: recusa: veio em ordem alfabética"]}}]}}"#
+        );
+        let err = parse_learn(&bad, &lessons, &[], &agents).unwrap_err().0;
+        for expected in [
+            "uma frase só",
+            "`ninguem`",
+            "não cita nenhuma lição",
+            "161 caracteres",
+            "não tem mapa",
+        ] {
+            assert!(err.iter().any(|e| e.contains(expected)), "{expected}: {err:?}");
+        }
+    }
 
     #[test]
     fn brief_from_fenced_json() {

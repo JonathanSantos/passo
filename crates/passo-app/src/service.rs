@@ -203,6 +203,13 @@ impl App {
             )
             .into());
         }
+        if passo_store::learn::load_task(&self.layout).is_some() {
+            return Err(Rejected(
+                "há um aprendizado com os runs em andamento; o dev aplica com passo learn --apply ou descarta com passo learn --cancel"
+                    .into(),
+            )
+            .into());
+        }
         let now = self.clock.now();
         let size = size.unwrap_or(self.config.default_size);
         let id = make_id(request, now);
@@ -270,6 +277,11 @@ impl App {
     pub fn next(&self) -> Result<String> {
         if self.store.active().is_none() && self.mapping() {
             return Ok(self.map_text());
+        }
+        if self.store.active().is_none()
+            && let Some(task) = passo_store::learn::load_task(&self.layout)
+        {
+            return Ok(self.learn_text(&task));
         }
         match self.store.latest() {
             Some(run) => Ok(self.next_text(&run)),
@@ -404,6 +416,9 @@ impl App {
     pub fn done(&self, input: DoneInput) -> Result<String> {
         if self.store.active().is_none() && self.mapping() {
             return self.map_done(input);
+        }
+        if self.store.active().is_none() && passo_store::learn::load_task(&self.layout).is_some() {
+            return self.learn_done(input);
         }
         let run = self.active()?;
         self.ensure_run_branch(&run)?;
@@ -556,6 +571,18 @@ impl App {
                 task.started_at.format("%d/%m %H:%M")
             );
         }
+        if self.store.active().is_none()
+            && let Some(task) = passo_store::learn::load_task(&self.layout)
+        {
+            return if task.delivered() {
+                self.learn_text(&task)
+            } else {
+                format!(
+                    "Aprendizado com os runs em andamento desde {}.\nO agente entrega as propostas com `passo done <arquivo>`; o dev descarta com `passo learn --cancel`.\n",
+                    task.started_at.format("%d/%m %H:%M")
+                )
+            };
+        }
         let Some(run) = self.store.latest() else {
             return "Nenhum run ainda. No agente, peça algo \"com o passo\", ou rode: passo start \"pedido\"".into();
         };
@@ -572,6 +599,11 @@ impl App {
             }
             Turn::Agent => out.push_str("\nO agente está trabalhando. Acompanhe com `passo ui`.\n"),
             Turn::None => {}
+        }
+        if let Some(hint) = self.learn_hint().filter(|_| !run.active()) {
+            out.push('\n');
+            out.push_str(&hint);
+            out.push('\n');
         }
         out
     }
@@ -1125,6 +1157,11 @@ impl App {
             checks_final: self.config.checks.final_.clone(),
             map_nodes,
             hook_warning,
+            learn: match passo_store::learn::load_task(&self.layout) {
+                Some(task) if task.delivered() => Some(self.learn_text(&task)),
+                Some(_) => Some("O agente está aprendendo com os runs (passo learn).".into()),
+                None => self.learn_hint(),
+            },
         };
         // Belt and braces: what the report and the dashboard show is redacted again, so an old log comes out clean.
         Ok(snapshot.redacted(|text| self.redact(text)))

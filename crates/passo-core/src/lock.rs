@@ -88,6 +88,15 @@ fn dev_command_in_script(script: &Script) -> Option<&'static str> {
         if sub == "map" && flags().any(|w| w.text == "--cancel") {
             return Some("map --cancel");
         }
+        // `passo learn` is the agent's; applying or dropping what it proposed is the dev's.
+        if sub == "learn" {
+            if flags().any(|w| w.text == "--apply" || w.text.starts_with("--apply=")) {
+                return Some("learn --apply");
+            }
+            if flags().any(|w| w.text == "--cancel") {
+                return Some("learn --cancel");
+            }
+        }
     }
     None
 }
@@ -99,20 +108,24 @@ pub enum Activity<'a> {
     Run(&'a Run),
     /// An agent is exploring the project to write its map: read-only.
     Mapping,
+    /// An agent is turning the dev's repeated corrections into proposals: read-only.
+    Learning,
 }
 
 impl<'a> Activity<'a> {
-    /// An active run wins; otherwise a pending mapping; otherwise nothing.
-    pub fn of(run: Option<&'a Run>, mapping: bool) -> Activity<'a> {
+    /// An active run wins; otherwise a pending mapping, then a pending learning; otherwise nothing.
+    pub fn of(run: Option<&'a Run>, mapping: bool, learning: bool) -> Activity<'a> {
         match run.filter(|r| r.active()) {
             Some(run) => Activity::Run(run),
             None if mapping => Activity::Mapping,
+            None if learning => Activity::Learning,
             None => Activity::Idle,
         }
     }
 }
 
 pub const MAPPING_READ_ONLY: &str = "o mapeamento é só leitura: o mapa é entregue com passo done";
+pub const LEARNING_READ_ONLY: &str = "aprender com os runs é só leitura: as propostas são entregues com passo done";
 
 fn git_write_in(script: &Script) -> Option<&'static str> {
     for cmd in script.commands.iter().filter(|c| c.program() == Some("git")) {
@@ -223,7 +236,12 @@ pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: 
     let run = match activity {
         Activity::Idle => return Verdict::Allow,
         Activity::Run(run) => Some(run),
-        Activity::Mapping => None,
+        Activity::Mapping | Activity::Learning => None,
+    };
+    let idle_read_only = if matches!(activity, Activity::Learning) {
+        LEARNING_READ_ONLY
+    } else {
+        MAPPING_READ_ONLY
     };
     let read_only_stage = run.is_none_or(|r| r.turn() == Turn::Dev || !r.stage.writes());
 
@@ -276,7 +294,7 @@ pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: 
             ));
         }
         if run.is_none() {
-            return Verdict::Deny(MAPPING_READ_ONLY.into());
+            return Verdict::Deny(idle_read_only.into());
         }
         return Verdict::Deny(format!(
             "`git {git}` é com o Passo durante um run: ele faz os commits e cuida da branch"
@@ -284,7 +302,7 @@ pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: 
     }
     if writes.iter().any(|p| p.starts_with(root)) {
         let Some(run) = run else {
-            return Verdict::Deny(MAPPING_READ_ONLY.into());
+            return Verdict::Deny(idle_read_only.into());
         };
         if run.turn() == Turn::Dev {
             return Verdict::Deny(
@@ -309,6 +327,9 @@ pub fn judge_stop(activity: Activity) -> Option<String> {
     let run = match activity {
         Activity::Idle => return None,
         Activity::Mapping => return Some("O Passo espera o mapa: entregue com passo done <arquivo>.".into()),
+        Activity::Learning => {
+            return Some("O Passo espera as propostas do que aprender: entregue com passo done <arquivo>.".into());
+        }
         Activity::Run(run) => run,
     };
     let run = Some(run).filter(|r| r.active() && r.turn() == Turn::Agent)?;
@@ -463,6 +484,14 @@ mod tests {
         assert_eq!(dev_command_in("passo map --cancel"), Some("map --cancel"));
         assert_eq!(dev_command_in("passo map"), None);
         assert!(judge_stop(Activity::Mapping).is_some());
+        assert_eq!(
+            judge(&write("/p/src/a.rs"), root, Activity::Learning),
+            Verdict::Deny(LEARNING_READ_ONLY.into())
+        );
+        assert!(judge_stop(Activity::Learning).is_some());
+        assert_eq!(dev_command_in("passo learn --apply 1,3"), Some("learn --apply"));
+        assert_eq!(dev_command_in("passo learn --cancel"), Some("learn --cancel"));
+        assert_eq!(dev_command_in("passo learn"), None);
     }
 
     #[test]

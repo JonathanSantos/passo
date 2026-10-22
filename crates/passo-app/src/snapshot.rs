@@ -67,6 +67,9 @@ pub struct Snapshot {
     pub map_nodes: Vec<String>,
     /// Hooks failed since the run began.
     pub hook_warning: Option<String>,
+    /// `passo learn`: the proposals waiting on the dev, or the hint that there are lessons to look at.
+    #[serde(default)]
+    pub learn: Option<String>,
 }
 
 impl Snapshot {
@@ -97,6 +100,7 @@ impl Snapshot {
         self.checks_final = self.checks_final.iter().map(|c| redact(c)).collect();
         self.next_text = self.next_text.as_deref().map(&redact);
         self.gate_text = self.gate_text.as_deref().map(&redact);
+        self.learn = self.learn.as_deref().map(&redact);
         self
     }
 }

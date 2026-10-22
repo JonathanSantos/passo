@@ -265,6 +265,7 @@ impl<'a> Engine<'a> {
                     text: format!("O refinamento subiu o tamanho para {}", size.label()),
                     before: Some(run.size.id().into()),
                     after: Some(size.id().into()),
+                    step: None,
                 });
                 out.event(
                     run,
@@ -374,6 +375,7 @@ impl<'a> Engine<'a> {
                 text: format!("Plano v{}: {}", run.plan_version, plan.title),
                 before: run.plan.as_ref().map(fingerprint),
                 after: Some(print.clone()),
+                step: None,
             });
         }
         // Steps done under an earlier plan stay (their work is on the branch) but lose their link to criteria: the
@@ -1045,6 +1047,7 @@ impl<'a> Engine<'a> {
         after: Option<String>,
         now: DateTime<Utc>,
     ) {
+        let step = run.current_step().map(|s| s.id.clone());
         run.changes.push(Change {
             at: now,
             by,
@@ -1053,6 +1056,7 @@ impl<'a> Engine<'a> {
             text,
             before,
             after,
+            step,
         });
     }
 
@@ -1206,9 +1210,13 @@ fn auto_plan(run: &Run) -> Plan {
 
 /// A stable fingerprint of a plan (FNV-1a over its JSON). The audit chain uses SHA-256; this only names versions.
 pub fn fingerprint(plan: &Plan) -> String {
-    let bytes = serde_json::to_vec(plan).unwrap_or_default();
+    fnv(&serde_json::to_vec(plan).unwrap_or_default())
+}
+
+/// FNV-1a, as 16 hex digits.
+pub fn fnv(bytes: &[u8]) -> String {
     let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in bytes {
+    for &byte in bytes {
         hash ^= byte as u64;
         hash = hash.wrapping_mul(0x100000001b3);
     }

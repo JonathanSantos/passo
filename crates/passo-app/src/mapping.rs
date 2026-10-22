@@ -358,7 +358,7 @@ impl App {
                     touched = true;
                 }
             } else if !check.note.is_empty() {
-                annotate(area, &run.id, &check.note);
+                annotate(area, &format!("run {}", run.id), &check.note);
                 touched = true;
             }
         }
@@ -371,8 +371,8 @@ impl App {
     }
 }
 
-/// Adds `- (run <id>) <note>` under `## Anotações`, keeping the newest few.
-fn annotate(area: &mut passo_core::map::Node, run: &str, note: &str) {
+/// Adds `- (<origin>) <note>` under `## Anotações` (`run <id>`, `aprendido`), keeping the newest few.
+pub(crate) fn annotate(area: &mut passo_core::map::Node, origin: &str, note: &str) {
     const HEADING: &str = "## Anotações";
     let (text, mut notes) = match area.body.split_once(HEADING) {
         Some((text, notes)) => (
@@ -386,7 +386,7 @@ fn annotate(area: &mut passo_core::map::Node, run: &str, note: &str) {
         ),
         None => (area.body.trim_end().to_string(), vec![]),
     };
-    notes.push(format!("- (run {run}) {}", note.trim()));
+    notes.push(format!("- ({origin}) {}", note.trim()));
     let skip = notes.len().saturating_sub(MAX_NOTES);
     area.body = format!("{text}\n\n{HEADING}\n{}", notes[skip..].join("\n"));
 }

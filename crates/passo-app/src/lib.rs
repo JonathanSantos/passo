@@ -3,6 +3,7 @@
 //! - [`service`]: start, next, done, ask and the dev's decisions; effects (checks, commits, delivery).
 //! - [`render`]: what the agent and the dev read.
 //! - [`mapping`]: `passo map`: an agent explores the project and Passo checks and writes the map.
+//! - [`learning`]: `passo learn`: what the dev keeps correcting across runs becomes a convention.
 //! - [`doctor`]: runs the installed hooks end to end, for `passo doctor`.
 //! - [`hooks`]: the lock and chat approvals, for any platform.
 //! - [`metrics`]: time, dev turns, tokens per stage and model.
@@ -13,6 +14,7 @@
 pub mod doctor;
 pub mod hooks;
 pub mod infra;
+pub mod learning;
 pub mod mapping;
 pub mod metrics;
 pub mod render;

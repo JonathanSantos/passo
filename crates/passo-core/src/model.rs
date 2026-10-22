@@ -244,6 +244,9 @@ pub struct Change {
     pub before: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<String>,
+    /// The step in progress when it happened (its files tell `passo learn` what the change was about).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

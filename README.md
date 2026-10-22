@@ -111,6 +111,7 @@ passo ui
 | `passo done <arquivo\|"resumo">`  | entrega a etapa (`--vazio`, `--nota "…"`)                |
 | `passo ask "<pergunta>" "<opção>"…` | pergunta ao dev, a recomendada primeiro                |
 | `passo map`                       | começa o mapeamento do projeto (entregue com `passo done`) |
+| `passo learn`                     | propõe convenções a partir do que o dev corrigiu nos runs |
 
 | Do dev                            |                                                          |
 | --------------------------------- | -------------------------------------------------------- |
@@ -120,6 +121,7 @@ passo ui
 | `passo size <t>`                  | troca o tamanho                                          |
 | `passo stop`                      | encerra (o trabalho fica no branch)                      |
 | `passo map --cancel`              | cancela um mapeamento em andamento                       |
+| `passo learn --apply 1,3`         | aplica as propostas escolhidas (`--cancel` descarta)     |
 
 | Ver                               |                                                          |
 | --------------------------------- | -------------------------------------------------------- |
@@ -149,6 +151,8 @@ Erros de domínio usam `thiserror`; nada de `unwrap()` fora de testes.
 ```
 
 Agentes, etapas, checklists de domínio, tamanhos e modelos: veja [`docs/EXTENDER.md`](docs/EXTENDER.md).
+
+- **O que você corrige vira convenção.** Depois de alguns runs, o Passo avisa "Há 4 lições novas de 3 runs". `passo learn` junta suas recusas, mudanças, dicas e respostas diferentes da recomendada; um agente propõe frases curtas e você escolhe com `passo learn --apply 1,3` o que vai para o `context.md`, o mapa ou um agente.
 
 **O mapa do projeto.** Peça ao agente "com o passo, mapeie o projeto" (ou rode `passo map`): um agente explorador lê o projeto, só lendo, e entrega um mapa com as áreas, as práticas e as bibliotecas. O Passo confere cada campo no disco (os caminhos casam arquivos rastreados, as fontes existem, nada mudou no projeto durante o mapeamento) e grava `.passo/map/` em Markdown, para você commitar e editar à mão quando quiser.
 

@@ -116,7 +116,8 @@ fn decide(
     }
     let run = app.store.active();
     let mapping = run.is_none() && app.mapping();
-    let activity = lock::Activity::of(run.as_ref(), mapping);
+    let learning = run.is_none() && !mapping && app.learning();
+    let activity = lock::Activity::of(run.as_ref(), mapping, learning);
     if let Some(run) = &run {
         for path in [&input.transcript, &input.agent_transcript].into_iter().flatten() {
             let transcript = Transcript {
@@ -135,6 +136,9 @@ fn decide(
             )),
             None if mapping => HookReply::Context(
                 "Passo: há um mapeamento do projeto em andamento. Rode `passo next` para ver a tarefa.".into(),
+            ),
+            None if learning => HookReply::Context(
+                "Passo: há um aprendizado com os runs em andamento. Rode `passo next` para ver a tarefa.".into(),
             ),
             None => HookReply::Allow,
         }),
@@ -229,6 +233,16 @@ fn decide(
                     return Ok(HookReply::Allow);
                 };
                 return Ok(if app.map_count_stop() <= MAX_STOP_BLOCKS {
+                    HookReply::Block(reason)
+                } else {
+                    HookReply::Allow
+                });
+            }
+            if learning {
+                let Some(reason) = lock::judge_stop(activity) else {
+                    return Ok(HookReply::Allow);
+                };
+                return Ok(if app.learn_count_stop() <= MAX_STOP_BLOCKS {
                     HookReply::Block(reason)
                 } else {
                     HookReply::Allow

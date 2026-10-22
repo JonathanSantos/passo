@@ -37,7 +37,7 @@ impl Store {
         } else {
             current.clone()
         };
-        for line in ["map/.task.json", "hook-errors.log"] {
+        for line in ["map/.task.json", "learn/.task.json", "hook-errors.log"] {
             if !text.lines().any(|l| l.trim() == line) {
                 if !text.ends_with('\n') {
                     text.push('\n');

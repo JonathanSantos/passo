@@ -299,6 +299,15 @@
     }
     warn.textContent = s.hook_warning || "";
     warn.style.display = s.hook_warning ? "block" : "none";
+    let learn = document.getElementById("learn");
+    if (!learn) {
+      learn = document.createElement("div");
+      learn.id = "learn";
+      learn.className = "card";
+      warn.after(learn);
+    }
+    learn.innerHTML = s.learn ? `<pre class="small">${esc(s.learn)}</pre>` : "";
+    learn.style.display = s.learn ? "block" : "none";
     $("foot").innerHTML = `<span>${audit}</span><span>${s.platforms.length ? esc(s.platforms.join(" · ")) : ""}</span><span>${live ? "ao vivo" : "relatório gerado em " + new Date(s.generated_at).toLocaleString("pt-BR")}</span>`;
     document.title = s.run ? `${s.run.gate ? "● " : ""}${LABEL[s.run.stage]} · passo` : "passo";
   }

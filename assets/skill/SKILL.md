@@ -37,6 +37,10 @@ Depois que o dev responder, rode `{{bin}} next`.
 
 Quando o dev pedir "mapeie o projeto" (ou o Passo sugerir), rode `{{bin}} map`. A saída é a tarefa do explorador: delegue ao subagente `passo-explorador`, se puder, passando a saída inteira; senão, faça você mesmo, seguindo o papel. O mapeamento é só leitura. Entregue o mapa com `{{bin}} done <arquivo>` e siga o mesmo ciclo `next`/`done` até o Passo dizer que o mapa foi salvo. Cancelar (`{{bin}} map --cancel`) é do dev.
 
+## Aprender com os runs
+
+Quando o Passo disser "Há N lições novas" (ou o dev pedir), rode `{{bin}} learn`. A saída é a tarefa: o que o dev corrigiu em runs passados (recusas, mudanças no pedido, dicas, respostas diferentes da recomendada), em grupos. Delegue ao subagente que a saída indica, passando a saída inteira; senão, faça você mesmo. É só leitura. Entregue as propostas com `{{bin}} done <arquivo>`, mostre a lista numerada ao dev e pare: aplicar (`{{bin}} learn --apply 1,3`) e descartar (`{{bin}} learn --cancel`) são do dev.
+
 ## Regras
 
 - Dúvida que muda o resultado: `{{bin}} ask "pergunta" "opção recomendada — porquê" "outra opção — porquê"` e pare.

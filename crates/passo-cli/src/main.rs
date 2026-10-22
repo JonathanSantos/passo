@@ -19,7 +19,7 @@ use passo_core::Size;
     name = "passo",
     version,
     about = "Passo a passo, com você aprovando: conduz agentes de IA do pedido à entrega.",
-    after_help = "Etapas: Refinar → Planejar → Construir → Verificar → Entregar\nTamanhos: pp (ajuste) · p (pequeno) · m (feature) · g (grande)\n\nDo agente: start, next, done, ask · Do dev: ok, no, change, size, stop"
+    after_help = "Etapas: Refinar → Planejar → Construir → Verificar → Entregar\nTamanhos: pp (ajuste) · p (pequeno) · m (feature) · g (grande)\n\nDo agente: start, next, done, ask, map, learn · Do dev: ok, no, change, size, stop"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -74,6 +74,15 @@ enum Cmd {
     /// Mapeia o projeto: o agente explora e entrega o mapa com passo done (só leitura)
     Map {
         /// [dev] Cancela o mapeamento em andamento
+        #[arg(long)]
+        cancel: bool,
+    },
+    /// Aprende com os runs: o agente propõe convenções a partir do que o dev corrigiu (só leitura)
+    Learn {
+        /// [dev] Aplica as propostas escolhidas: 1,3 · todas
+        #[arg(long)]
+        apply: Option<String>,
+        /// [dev] Descarta o aprendizado em andamento
         #[arg(long)]
         cancel: bool,
     },
@@ -173,6 +182,8 @@ fn dev_subcommand(command: &Cmd) -> Option<&'static str> {
         Cmd::Size { .. } => Some("size"),
         Cmd::Stop { .. } => Some("stop"),
         Cmd::Map { cancel: true } => Some("map --cancel"),
+        Cmd::Learn { apply: Some(_), .. } => Some("learn --apply"),
+        Cmd::Learn { cancel: true, .. } => Some("learn --cancel"),
         _ => None,
     }
 }
@@ -230,6 +241,14 @@ fn run(command: Cmd) -> Result<String> {
         Cmd::Map { cancel } => {
             let app = app()?;
             if cancel { app.map_cancel() } else { app.map_start() }
+        }
+        Cmd::Learn { apply, cancel } => {
+            let app = app()?;
+            match (apply, cancel) {
+                (Some(choice), _) => app.learn_apply(&choice),
+                (None, true) => app.learn_cancel(),
+                (None, false) => app.learn_start(),
+            }
         }
         Cmd::Status => Ok(app()?.status_text()),
         Cmd::Plan => plan(),

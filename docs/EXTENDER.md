@@ -19,6 +19,7 @@ Para acrescentar comportamento (um agente novo, uma etapa feita de outro jeito, 
 | mudar quem faz cada etapa num tamanho        | `.passo/passo.yaml` → `sizes.<t>`    |
 | trocar o modelo de um nível                  | `.passo/passo.yaml` → `models`       |
 | dizer aos agentes como o projeto é organizado | `.passo/map/` (o mapa do projeto)   |
+| transformar o que corrijo em convenção       | `passo learn` (veja abaixo)          |
 
 Depois de mexer em agentes, rode `passo sync`: ele reescreve os arquivos de cada plataforma (`.claude/agents`, `.github/agents`). `passo doctor` mostra de onde veio cada coisa.
 
@@ -180,6 +181,24 @@ projects:
 ```
 
 O Passo lê o mapa de `../api/.passo/map/` com os ids prefixados (`api/armazenamento`), e uma área daqui pode citar `depends_on: [api/armazenamento]`. As áreas anexadas nunca casam os arquivos daqui: chegam ao contexto por dependência ou pelas palavras do pedido, mostradas a partir daqui (`api/armazenamento (../api/src/store.ts)`). O projeto anexado é só leitura: durante um run ou um mapeamento, a trava nega escrita nele. O mapa dele se faz lá, com o `passo map` de lá; sem mapa, o `start` e o `doctor` avisam e seguem.
+
+## Aprender com os runs
+
+Cada recusa (`passo no "…"`), mudança no pedido, dica e resposta diferente da recomendada fica no run, assim como as observações do revisor. Quando há 3 ou mais dessas lições ainda não vistas, de 2 ou mais runs, `passo status` e o fim de uma entrega avisam. Então:
+
+1. O agente roda `passo learn`. O Passo junta as lições (sem modelo: lições com duas palavras longas em comum ficam no mesmo grupo; um grupo de mais de um run aparece primeiro) e mostra ao refinador, no nível forte, com o `context.md` atual e as áreas do mapa que os arquivos tocam.
+2. O agente entrega até 10 propostas com `passo done`: uma frase cada (até 160 caracteres), um destino que existe (`context`, `mapa:<área>` ou `agente:<agente>`) e as fontes, copiadas das lições.
+3. Você escolhe: `passo learn --apply 1,3` (ou `todas`), ou `passo learn --cancel`.
+
+Aplicar escreve:
+
+| Destino           | Onde                                                                          |
+| ----------------- | ----------------------------------------------------------------------------- |
+| `context`         | `.passo/context.md`, sob `## Aprendido com os runs`, com as fontes num comentário HTML |
+| `mapa:<área>`     | `## Anotações` da área em `.passo/map/areas/<área>.md`                        |
+| `agente:<nome>`   | `.passo/agents/<nome>.md` sob `## Aprendido com os runs` (criado com `extends: <nome>` se não existe); rode `passo sync` |
+
+Todas as lições mostradas naquela rodada entram em `.passo/learn/seen.json`, que vai no git: ninguém do time revê as mesmas. Descartar (`--cancel`) não marca nada como visto. Enquanto o agente trabalha, o projeto é só leitura, como no mapeamento.
 
 ## Checklists de domínio
 

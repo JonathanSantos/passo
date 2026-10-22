@@ -1149,3 +1149,102 @@ fn a_failing_hook_is_recorded_and_announced() {
     let log = std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("events.jsonl")).unwrap();
     assert_eq!(log.matches("\"hook.failed\"").count(), 1);
 }
+
+/// A finished run with the dev's rejections, as if it had happened.
+fn past_run(p: &Project, id: &str, rejections: &[&str]) {
+    let now = chrono::Utc::now();
+    let mut run = passo_core::Run::new(id, "pedido antigo", passo_core::Size::P, now);
+    run.status = Status::Done;
+    for text in rejections {
+        run.changes.push(passo_core::model::Change {
+            at: now,
+            by: passo_core::Actor::Dev,
+            kind: passo_core::model::ChangeKind::Recusa,
+            stage: Stage::Entregar,
+            text: text.to_string(),
+            before: None,
+            after: None,
+            step: None,
+        });
+    }
+    p.app().store.save(&run).unwrap();
+}
+
+#[test]
+fn learning_turns_repeated_rejections_into_a_convention() {
+    let p = Project::new("learn");
+    past_run(&p, "r1", &["a listagem veio em ordem alfabética"]);
+    past_run(&p, "r2", &["listagem deve seguir a ordem de criação, não alfabética"]);
+    past_run(&p, "r3", &["faltou testar o erro de rede"]);
+    let status = p.app().status_text();
+    assert!(status.contains("Há 3 lições novas de 3 runs"), "{status}");
+
+    let task = p.app().learn_start().unwrap();
+    assert!(task.contains("se repete em 2 runs"), "{task}");
+    assert!(
+        task.contains("run r1: recusa: a listagem veio em ordem alfabética"),
+        "{task}"
+    );
+    assert!(task.contains("refinador-forte"), "{task}");
+
+    // Read-only while the agent works, and it may not stop before handing in.
+    let write = tool(
+        &p.root,
+        "Write",
+        serde_json::json!({"file_path": p.root.join("src/x.txt")}),
+    );
+    assert!(p.hook(HookEvent::PreToolUse, write).unwrap().contains("só leitura"));
+    assert!(
+        p.hook(HookEvent::Stop, serde_json::json!({ "cwd": p.root }))
+            .unwrap()
+            .contains("block")
+    );
+
+    let wrong = p.draft(
+        "learn-wrong",
+        r#"{"propostas":[{"texto":"Listas em ordem de criação","destino":"mapa:x","fontes":["run r1: recusa: a listagem veio em ordem alfabética"]}]}"#,
+    );
+    let err = p
+        .app()
+        .done(DoneInput {
+            text: wrong,
+            ..Default::default()
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("`propostas[0].destino`") && err.contains("`x`"), "{err}");
+
+    let good = p.draft(
+        "learn-good",
+        r#"{"propostas":[{"texto":"Listagens saem em ordem de criação, nunca alfabética","destino":"context","fontes":["run r1: recusa: a listagem veio em ordem alfabética","run r2: recusa: listagem deve seguir a ordem de criação, não alfabética"]}]}"#,
+    );
+    let out = p.done(&good);
+    assert!(
+        out.contains("1. Listagens saem em ordem de criação") && out.contains("--apply"),
+        "{out}"
+    );
+    assert!(p.hook(HookEvent::Stop, serde_json::json!({ "cwd": p.root })).is_none());
+
+    let applied = p.app().learn_apply("1").unwrap();
+    assert!(applied.contains("Aplicadas"), "{applied}");
+    let context = std::fs::read_to_string(p.root.join(".passo/context.md")).unwrap();
+    assert!(
+        context.contains(
+            "## Aprendido com os runs\n- Listagens saem em ordem de criação, nunca alfabética <!-- fontes: run r1"
+        ),
+        "{context}"
+    );
+    let seen: Vec<String> =
+        serde_json::from_str(&std::fs::read_to_string(p.root.join(".passo/learn/seen.json")).unwrap()).unwrap();
+    assert_eq!(seen.len(), 3);
+    assert!(p.app().learn_hint().is_none());
+
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-q", "-m", "aprendido"]);
+    p.app().start("Listar tarefas", Some(passo_core::Size::P)).unwrap();
+    let next = p.app().next().unwrap();
+    assert!(
+        next.contains("Convenções do projeto") && next.contains("Listagens saem em ordem de criação"),
+        "{next}"
+    );
+}

@@ -8,6 +8,7 @@
 //!   stages/<etapa>.md   how a stage is done in this project
 //!   checklists/*.md     domain checklists for planning and review
 //!   map/                the project map an exploring agent writes (optional, in git)
+//!   learn/seen.json     lessons from past runs the dev already decided on (in git)
 //!   current             id of the active run
 //!   runs/<id>/          run.json, events.jsonl, plan-v<N>.json, tree.md, sessions.json, report.html (not in git)
 //!   audit/<id>/         the log and the plans as they were when the run ended, committed on the run's branch
@@ -59,6 +60,14 @@ impl Layout {
         self.project_map().join("log.jsonl")
     }
     /// Hook failures, newest last (out of git, at most 200 lines).
+    /// `passo learn` in progress (live state, out of git).
+    pub fn learn_task(&self) -> PathBuf {
+        self.passo().join("learn").join(".task.json")
+    }
+    /// Fingerprints of the lessons already decided on (in git, so the team does not see them again).
+    pub fn learn_seen(&self) -> PathBuf {
+        self.passo().join("learn").join("seen.json")
+    }
     pub fn hook_errors(&self) -> PathBuf {
         self.passo().join("hook-errors.log")
     }
