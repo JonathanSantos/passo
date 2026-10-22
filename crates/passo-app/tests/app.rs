@@ -30,7 +30,7 @@ impl Project {
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(root.join("src/lib.txt"), "tarefas\n").unwrap();
         let project = Project {
-            root: std::fs::canonicalize(&root).unwrap(),
+            root: passo_core::lock::plain(std::fs::canonicalize(&root).unwrap()),
         };
         project.git(&["init", "-q", "-b", "main"]);
         project.git(&["config", "user.email", "t@t"]);

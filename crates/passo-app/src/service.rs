@@ -852,13 +852,15 @@ impl App {
             return DiffCoverage::skipped("não consegui criar a pasta temporária");
         }
         let out = dir.join("lcov.info");
+        // The command runs in sh, where `\` escapes: Windows paths go with forward slashes.
+        let shell_path = |p: &Path| p.display().to_string().replace('\\', "/");
         let command = self
             .config
             .checks
             .coverage
             .command
-            .replace("{outdir}", &dir.display().to_string())
-            .replace("{out}", &out.display().to_string());
+            .replace("{outdir}", &shell_path(&dir))
+            .replace("{out}", &shell_path(&out));
         let timeout = Duration::from_secs(self.config.checks.timeout_secs.max(1));
         let ran = self.runner.run(&command, &self.layout.root, timeout);
         let text = std::fs::read_to_string(&out).unwrap_or_default();
@@ -871,7 +873,7 @@ impl App {
         if text.trim().is_empty() {
             return DiffCoverage::skipped("o comando de cobertura não escreveu o lcov");
         }
-        let root = std::fs::canonicalize(&self.layout.root).unwrap_or(self.layout.root.clone());
+        let root = crate::infra::canonical(&self.layout.root);
         let mut lcov = coverage::parse_lcov(&text, &root.display().to_string());
         if root != self.layout.root {
             let other = coverage::parse_lcov(&text, &self.layout.root.display().to_string());
@@ -1043,7 +1045,7 @@ impl App {
     /// Every criterion the review calls met must cite something Passo can find: a file that exists (and the line,
     /// when one is cited), or a test name in a test file or in a file the run touched. Cheap models invent evidence.
     fn check_evidence(&self, run: &Run, review: &spec::Review) -> std::result::Result<(), Invalid> {
-        let root = std::fs::canonicalize(&self.layout.root).unwrap_or(self.layout.root.clone());
+        let root = crate::infra::canonical(&self.layout.root);
         let mut errors = vec![];
         // Each searchable file is read once per hand-in, whatever the number of criteria.
         let mut searchable: Option<Vec<String>> = None;
@@ -1389,7 +1391,7 @@ pub(crate) fn attached_roots(root: &Path, config: &Config) -> Vec<(String, PathB
         .iter()
         .map(|p| {
             let path = root.join(&p.path);
-            (p.name.clone(), std::fs::canonicalize(&path).unwrap_or(path))
+            (p.name.clone(), crate::infra::canonical(&path))
         })
         .collect()
 }
@@ -1434,7 +1436,7 @@ fn project_file(root: &Path, path: &str) -> Located {
         return Located::Outside;
     }
     let joined = root.join(relative);
-    let Ok(real) = std::fs::canonicalize(&joined) else {
+    let Some(real) = std::fs::canonicalize(&joined).ok().map(passo_core::lock::plain) else {
         return Located::Missing;
     };
     if !real.starts_with(root) {

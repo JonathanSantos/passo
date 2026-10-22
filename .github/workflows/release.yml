@@ -21,6 +21,7 @@ jobs:
           - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
           - { target: x86_64-apple-darwin, os: macos-latest }
           - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -35,8 +36,13 @@ jobs:
         run: |
           name="passo-${{ matrix.target }}"
           mkdir -p dist
-          tar -C "target/${{ matrix.target }}/release" -czf "dist/$name.tar.gz" passo
-          (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a -tzip "dist/$name.zip" "./target/${{ matrix.target }}/release/passo.exe" > /dev/null
+            (cd dist && sha256sum "$name.zip" > "$name.zip.sha256")
+          else
+            tar -C "target/${{ matrix.target }}/release" -czf "dist/$name.tar.gz" passo
+            (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: passo-${{ matrix.target }}

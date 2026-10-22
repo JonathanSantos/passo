@@ -139,13 +139,20 @@ impl Platform for Copilot {
 
     fn parse_hook(&self, _event: HookEvent, raw: &Value) -> HookInput {
         let cwd = payload::text(raw, &["cwd", "workspaceFolder"]).map(PathBuf::from);
+        let mut tool = payload::tool(
+            raw,
+            cwd.as_deref(),
+            &["tool_name", "toolName"],
+            &["tool_input", "toolArgs", "toolInput"],
+        );
+        // VS Code's terminal on Windows is PowerShell unless the dev changed it: the lock judges it as unreadable.
+        if cfg!(windows)
+            && let Some(tool) = tool.as_mut().filter(|t| t.kind == passo_core::lock::ToolKind::Exec)
+        {
+            tool.foreign_shell = true;
+        }
         HookInput {
-            tool: payload::tool(
-                raw,
-                cwd.as_deref(),
-                &["tool_name", "toolName"],
-                &["tool_input", "toolArgs", "toolInput"],
-            ),
+            tool,
             prompt: payload::text(raw, &["prompt", "userPrompt", "user_prompt"]),
             transcript: payload::text(raw, &["transcript_path", "transcriptPath"]).map(PathBuf::from),
             agent_transcript: payload::text(raw, &["agent_transcript_path", "agentTranscriptPath"]).map(PathBuf::from),

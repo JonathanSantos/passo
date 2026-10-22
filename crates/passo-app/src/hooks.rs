@@ -250,7 +250,7 @@ fn decide(
             let Some(tool) = input.tool else {
                 return Ok(HookReply::Allow);
             };
-            let root = std::fs::canonicalize(&app.layout.root).unwrap_or(app.layout.root.clone());
+            let root = crate::infra::canonical(&app.layout.root);
             let attached: Vec<std::path::PathBuf> = crate::service::attached_roots(&app.layout.root, &app.config)
                 .into_iter()
                 .map(|(_, r)| r)
@@ -366,7 +366,7 @@ fn probe(event: HookEvent, input: &passo_adapters::HookInput, layout: Layout) ->
     let mapping = run.is_none() && app.mapping();
     let learning = run.is_none() && !mapping && app.learning();
     let activity = lock::Activity::of(run.as_ref(), mapping, learning);
-    let root = std::fs::canonicalize(&app.layout.root).unwrap_or(app.layout.root.clone());
+    let root = crate::infra::canonical(&app.layout.root);
     Ok(match lock::judge(tool, &root, activity) {
         Verdict::Allow => HookReply::Allow,
         Verdict::Deny(reason) => HookReply::Deny(reason),

@@ -4,15 +4,35 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 fn passo(dir: &Path, path: &str, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_passo"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_passo"));
+    command
         .env_clear()
         .env("PATH", path)
         // A home of its own: the project folder as HOME would make its .passo/ the global one, not the project's.
         .env("HOME", dir.join("home"))
         .current_dir(dir)
-        .args(args)
-        .output()
+        .args(args);
+    // Windows programs need these to start (SystemRoot) and Git Bash to run the hook.
+    for key in ["SYSTEMROOT", "TEMP", "TMP", "PATHEXT", "COMSPEC", "PASSO_SHELL"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    command.output().unwrap()
+}
+
+/// The built binary's folder first, then the system tools (git, sh): a minimal PATH on Unix, the runner's on Windows.
+fn test_path() -> String {
+    let bin_dir = Path::new(env!("CARGO_BIN_EXE_passo")).parent().unwrap().to_path_buf();
+    let rest: Vec<std::path::PathBuf> = if cfg!(windows) {
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect()
+    } else {
+        vec!["/usr/bin".into(), "/bin".into()]
+    };
+    std::env::join_paths(std::iter::once(bin_dir).chain(rest))
         .unwrap()
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn text(out: &Output) -> String {
@@ -29,13 +49,8 @@ fn doctor_proves_the_hook_answers() {
     std::fs::remove_dir_all(&root).ok();
     std::fs::create_dir_all(&root).unwrap();
     // The real path (macOS links /var to /private/var), as Linux has it.
-    let root = std::fs::canonicalize(&root).unwrap();
-    let bin_dir = Path::new(env!("CARGO_BIN_EXE_passo"))
-        .parent()
-        .unwrap()
-        .display()
-        .to_string();
-    let path = format!("{bin_dir}:/usr/bin:/bin");
+    let root = passo_core::lock::plain(std::fs::canonicalize(&root).unwrap());
+    let path = test_path();
     let init = passo(&root, &path, &["init", "--agent", "claude"]);
     assert!(
         init.status.success() && text(&init).contains("Confira com: passo doctor"),
@@ -74,13 +89,8 @@ fn project(name: &str) -> (std::path::PathBuf, String) {
     let root = std::env::temp_dir().join(format!("passo-cli-{name}-{}", std::process::id()));
     std::fs::remove_dir_all(&root).ok();
     std::fs::create_dir_all(&root).unwrap();
-    let root = std::fs::canonicalize(&root).unwrap();
-    let bin_dir = Path::new(env!("CARGO_BIN_EXE_passo"))
-        .parent()
-        .unwrap()
-        .display()
-        .to_string();
-    let path = format!("{bin_dir}:/usr/bin:/bin");
+    let root = passo_core::lock::plain(std::fs::canonicalize(&root).unwrap());
+    let path = test_path();
     assert!(passo(&root, &path, &["init", "--agent", "claude"]).status.success());
     (root, path)
 }

@@ -1,0 +1,4 @@
+# Assets go into the binary with include_str!: LF on every checkout, Windows included.
+* text=auto eol=lf
+*.png binary
+*.ico binary

@@ -14,6 +14,10 @@ fn project() -> std::path::PathBuf {
 fn passo(dir: &std::path::Path, env: &[(&str, &str)], args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_passo"));
     command.env_clear().current_dir(dir).args(args);
+    // Windows programs need SystemRoot to start.
+    if let Some(root) = std::env::var_os("SYSTEMROOT") {
+        command.env("SYSTEMROOT", root);
+    }
     for (key, value) in env {
         command.env(key, value);
     }

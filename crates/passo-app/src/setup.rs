@@ -120,15 +120,28 @@ pub fn install(app: &App, platforms: &[String], bin: &str) -> Result<Vec<PathBuf
 
 /// How hooks should call Passo: `passo` when it is on the PATH, else the absolute path of this binary.
 pub fn hook_bin() -> String {
+    let exe = format!("passo{}", std::env::consts::EXE_SUFFIX);
     let on_path = std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join("passo").is_file()))
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(&exe).is_file()))
         .unwrap_or(false);
     if on_path {
         return "passo".into();
     }
     std::env::current_exe()
         .ok()
-        .map(|p| p.display().to_string())
-        .map(|p| if p.contains(' ') { format!("\"{p}\"") } else { p })
+        .map(|p| bin_path(&p))
         .unwrap_or_else(|| "passo".into())
+}
+
+/// The binary's path as the hook's shell reads it. Windows hooks run in Git Bash, where `\` escapes: the path goes
+/// with forward slashes, always quoted (`"C:/Users/ana/.local/bin/passo.exe"`).
+fn bin_path(path: &std::path::Path) -> String {
+    let text = path.display().to_string();
+    if cfg!(windows) {
+        format!("\"{}\"", text.replace('\\', "/"))
+    } else if text.contains(' ') {
+        format!("\"{text}\"")
+    } else {
+        text
+    }
 }

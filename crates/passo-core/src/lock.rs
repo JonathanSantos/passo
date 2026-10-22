@@ -31,6 +31,19 @@ pub struct ToolUse {
     pub command: Option<String>,
     /// Where a shell command runs (relative paths in it resolve from here); the project root when unknown.
     pub cwd: Option<PathBuf>,
+    /// The command is for a shell the lexer does not read (PowerShell): it is judged as unreadable.
+    pub foreign_shell: bool,
+}
+
+/// A canonical path as the rest of the system writes it: on Windows, `canonicalize` answers `\\?\C:\proj`, which
+/// no tool path (`C:\proj\src\a.rs`) starts with. Pure: the caller canonicalizes, this drops the prefix.
+pub fn plain(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        Some(rest) if rest.starts_with("UNC\\") => PathBuf::from(format!(r"\\{}", &rest[4..])),
+        _ => path,
+    }
 }
 
 /// Why a command the lexer cannot read is refused.
@@ -42,6 +55,7 @@ pub const WHY_DYNAMIC_PROGRAM: &str = "expansão no nome do programa";
 pub const NO_SUBCOMMAND: &str = "diga o subcomando do passo por extenso";
 pub const PROTECTED_PATTERN: &str = "curinga ou variável num caminho protegido; escreva o caminho por extenso";
 pub const DYNAMIC_TARGET: &str = "alvo do redirecionamento com variável; use um caminho fixo em mktemp -d";
+pub const WHY_FOREIGN: &str = "PowerShell, que a trava não lê";
 pub const SWAPPED_ENV: &str = "o Passo e o git rodam com o ambiente do projeto, sem PATH ou bibliotecas trocadas";
 
 /// Programs that run the command after them: a `passo` after one of these is in a program's place.
@@ -317,7 +331,7 @@ fn shell_paths(script: &Script, cwd: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
             .iter()
             .filter(|r| !r.target.dynamic && !r.target.text.is_empty())
         {
-            let path = resolve(cwd, &redirect.target.text);
+            let path = resolve(cwd, &redirect.target.text.replace('\\', "/"));
             if redirect.write {
                 writes.push(path)
             } else {
@@ -325,8 +339,10 @@ fn shell_paths(script: &Script, cwd: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
             }
         }
         for word in cmd.words.iter().skip(1).filter(|w| !w.dynamic) {
-            if word.text.contains('/') || (word.text.starts_with('.') && word.text.len() > 1) {
-                reads.push(resolve(cwd, &word.text));
+            // A quoted Windows path keeps its backslashes: `cat "C:\proj\.env"`.
+            let text = word.text.replace('\\', "/");
+            if text.contains('/') || (text.starts_with('.') && text.len() > 1) {
+                reads.push(resolve(cwd, &text));
             }
         }
     }
@@ -339,8 +355,9 @@ fn is_secret(path: &Path) -> bool {
         && !(name.ends_with(".example") || name.ends_with(".sample") || name.ends_with(".template"))
 }
 
-/// Whether a command names `.passo/`; with `map_readable`, the map and `context.md` do not count.
+/// Whether a command names `.passo/` (with either slash); with `map_readable`, the map and `context.md` do not count.
 fn mentions_passo_dir(command: &str, map_readable: bool) -> bool {
+    let command = command.replace('\\', "/");
     command
         .split(|c: char| c.is_whitespace() || "'\"=<>;|&()".contains(c))
         .filter(|word| !(map_readable && names_map(word)))
@@ -377,7 +394,15 @@ pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: 
         .command
         .as_deref()
         .filter(|_| tool.kind == ToolKind::Exec)
-        .map(shell::lex);
+        .map(|command| {
+            let mut script = shell::lex(command);
+            // Read anyway: `passo ok` is the same pair in any shell. Everything else counts as unreadable.
+            if tool.foreign_shell {
+                script.readable = false;
+                script.why = Some(WHY_FOREIGN);
+            }
+            script
+        });
     if let Some(dev) = script.as_ref().and_then(dev_command_in_script) {
         return Verdict::Deny(dev_command_refusal(dev));
     }
@@ -678,7 +703,7 @@ mod tests {
             kind: ToolKind::Read,
             paths: vec!["/p/src/a.rs".into()],
             command: None,
-            cwd: None,
+            ..Default::default()
         };
         assert_eq!(judge(&read, root, Activity::Mapping), Verdict::Allow);
         assert!(matches!(
@@ -890,6 +915,45 @@ mod tests {
             judge(&exec("bash script.sh"), root, Activity::Run(&refine)),
             Verdict::Deny(unreadable(shell::WHY_SHELL))
         );
+    }
+
+    #[test]
+    fn windows_paths_and_powershell() {
+        assert_eq!(plain(PathBuf::from(r"\\?\C:\proj")), PathBuf::from(r"C:\proj"));
+        assert_eq!(
+            plain(PathBuf::from(r"\\?\UNC\srv\share")),
+            PathBuf::from(r"\\srv\share")
+        );
+        assert_eq!(plain(PathBuf::from("/p/src")), PathBuf::from("/p/src"));
+
+        let root = Path::new("/p");
+        let build = building();
+        let refine = run_at(Stage::Refinar);
+        let powershell = |cmd: &str| ToolUse {
+            foreign_shell: true,
+            ..exec(cmd)
+        };
+        assert_eq!(
+            judge(&powershell("Get-Content src/a.rs"), root, Activity::Run(&refine)),
+            Verdict::Deny(unreadable(WHY_FOREIGN))
+        );
+        assert_eq!(
+            judge(&powershell("npm test"), root, Activity::Run(&build)),
+            Verdict::Allow
+        );
+        assert!(matches!(
+            judge(&powershell("passo ok"), root, Activity::Run(&build)),
+            Verdict::Deny(reason) if reason.contains("decisão do dev")
+        ));
+        assert!(matches!(
+            judge(&powershell("git commit -m x"), root, Activity::Run(&build)),
+            Verdict::Deny(_)
+        ));
+        // A backslash is a separator too: `.passo\runs` is `.passo/runs`.
+        assert!(matches!(
+            judge(&exec(r#"type ".passo\runs\r1\run.json""#), root, Activity::Run(&build)),
+            Verdict::Deny(_)
+        ));
     }
 
     #[test]

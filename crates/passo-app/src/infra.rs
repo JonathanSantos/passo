@@ -21,11 +21,45 @@ impl Clock for SystemClock {
     }
 }
 
+/// `canonicalize`, written the way tool paths are (no `\\?\` on Windows), or the path as it is when it does not exist.
+pub fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path)
+        .map(passo_core::lock::plain)
+        .unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// The POSIX shell checks and hooks run in: `sh` on Linux and macOS; on Windows, `PASSO_SHELL`, or the `sh` of Git
+/// for Windows (the same Git Bash Claude Code runs its commands in). `None` when Windows has none.
+pub fn shell_program() -> Option<PathBuf> {
+    if let Some(shell) = std::env::var_os("PASSO_SHELL").filter(|s| !s.is_empty()) {
+        return Some(PathBuf::from(shell));
+    }
+    if !cfg!(windows) {
+        return Some(PathBuf::from("sh"));
+    }
+    let on_path = std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .flat_map(|dir| [dir.join("sh.exe"), dir.join("bash.exe")])
+            .find(|p| p.is_file())
+    });
+    on_path.or_else(|| {
+        let roots = ["ProgramFiles", "ProgramW6432", "LOCALAPPDATA"];
+        roots
+            .iter()
+            .filter_map(|k| std::env::var_os(k).map(PathBuf::from))
+            .flat_map(|root| [root.join("Git/bin/sh.exe"), root.join("Programs/Git/bin/sh.exe")])
+            .find(|p| p.is_file())
+    })
+}
+
+/// What a check reads when Windows has no POSIX shell.
+pub const NO_SHELL: &str = "no Windows o Passo roda as checagens com o sh do Git Bash: instale o Git for Windows (https://git-scm.com) ou aponte PASSO_SHELL para um sh";
+
 pub trait CheckRunner: Send + Sync {
     fn run(&self, command: &str, dir: &Path, timeout: Duration) -> CheckResult;
 }
 
-/// Runs checks with `sh -c`, keeping the tail of the output.
+/// Runs checks with `sh -c` (see [`shell_program`]), keeping the tail of the output.
 pub struct ShellRunner;
 
 const TAIL_LINES: usize = 40;
@@ -33,7 +67,15 @@ const TAIL_LINES: usize = 40;
 impl CheckRunner for ShellRunner {
     fn run(&self, command: &str, dir: &Path, timeout: Duration) -> CheckResult {
         let started = Instant::now();
-        let child = Command::new("sh")
+        let Some(shell) = shell_program() else {
+            return CheckResult {
+                command: command.into(),
+                ok: false,
+                output: NO_SHELL.into(),
+                ms: 0,
+            };
+        };
+        let child = Command::new(shell)
             .arg("-c")
             .arg(format!("{command} 2>&1"))
             .current_dir(dir)
@@ -334,7 +376,7 @@ pub fn run_with_input(
 ) -> Option<Ran> {
     use std::io::Write;
     let started = Instant::now();
-    let mut child = Command::new("sh")
+    let mut child = Command::new(shell_program()?)
         .arg("-c")
         .arg(command)
         .current_dir(dir)

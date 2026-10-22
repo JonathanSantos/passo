@@ -5,7 +5,7 @@
 
 **Passo a passo, com você aprovando.** O Passo conduz um agente de IA (Claude Code ou GitHub Copilot) do pedido à entrega, em cinco etapas com nomes comuns. O agente faz uma coisa por vez. Quem decide o próximo passo, roda as checagens e faz os commits é o Passo, e nada é entregue sem o seu ok.
 
-`Rust` · `um binário de 1,8 MB` · `macOS e Linux` · `Claude Code e Copilot` · `pt-BR`
+`Rust` · `um binário de 1,8 MB` · `macOS, Linux e Windows` · `Claude Code e Copilot` · `pt-BR`
 
 ---
 
@@ -64,11 +64,19 @@ A partir do código (Rust 1.89 ou mais novo):
 cargo install --git https://github.com/JonathanSantos/passo passo-cli
 ```
 
-Depois da primeira release, também pelo instalador, que baixa o binário para macOS ou Linux e confere o checksum:
+Pelo instalador, que baixa o binário da última release e confere o checksum. No macOS e no Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JonathanSantos/passo/main/install.sh | sh
 ```
+
+No Windows (PowerShell), com o [Git for Windows](https://git-scm.com) instalado:
+
+```powershell
+irm https://raw.githubusercontent.com/JonathanSantos/passo/main/install.ps1 | iex
+```
+
+No Windows, o Passo roda as checagens e os hooks com o `sh` do Git Bash, o mesmo em que o Claude Code roda os comandos (ou o que `PASSO_SHELL` apontar). No Copilot do VS Code, o terminal padrão do Windows é o PowerShell, que a trava não lê: comandos ali contam como ilegíveis (negados nas etapas só de leitura e quando citam `passo` ou `git`; em Construir passam, e a conferência pelo git cobre). Para a trava ler os comandos, use o Git Bash como terminal do VS Code.
 
 No projeto (um repositório git com pelo menos um commit):
 
@@ -223,7 +231,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-A CI roda em Linux e macOS. Uma tag `v*` publica binários para macOS e Linux (x86_64 e aarch64). Depois da primeira release, para instalar o Passo num workflow (ou no ambiente do Copilot coding agent), use a action do repositório:
+A CI roda em Linux, macOS e Windows. Uma tag `v*` publica binários para macOS e Linux (x86_64 e aarch64) e Windows (x86_64). Depois da primeira release, para instalar o Passo num workflow (ou no ambiente do Copilot coding agent), use a action do repositório:
 
 ```yaml
 - uses: JonathanSantos/passo@main

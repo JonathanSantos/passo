@@ -10,10 +10,19 @@ inputs:
 runs:
   using: composite
   steps:
-    - shell: bash
+    - if: runner.os != 'Windows'
+      shell: bash
       env:
         PASSO_VERSION: ${{ inputs.version }}
         PASSO_INSTALL_DIR: ${{ runner.temp }}/passo-bin
       run: |
         sh "${{ github.action_path }}/install.sh"
         echo "$PASSO_INSTALL_DIR" >> "$GITHUB_PATH"
+    - if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        PASSO_VERSION: ${{ inputs.version }}
+        PASSO_INSTALL_DIR: ${{ runner.temp }}\passo-bin
+      run: |
+        & "${{ github.action_path }}\install.ps1"
+        Add-Content -Path $env:GITHUB_PATH -Value $env:PASSO_INSTALL_DIR

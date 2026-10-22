@@ -341,7 +341,7 @@ impl<'a> Engine<'a> {
                 kind: ToolKind::Exec,
                 paths: vec![],
                 command: Some(step.test_command.clone()),
-                cwd: None,
+                ..Default::default()
             };
             if let Verdict::Deny(reason) = lock::judge(&tool, Path::new("/"), Activity::Run(run)) {
                 let reason = reason.split(". ").next().unwrap_or(&reason).trim_end_matches('.');

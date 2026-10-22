@@ -11,7 +11,8 @@ dir="${PASSO_INSTALL_DIR:-$HOME/.local/bin}"
 case "$(uname -s)" in
   Linux) os="unknown-linux-musl" ;;
   Darwin) os="apple-darwin" ;;
-  *) echo "passo: sistema não suportado: $(uname -s) (há builds para macOS e Linux)" >&2; exit 1 ;;
+  MINGW* | MSYS* | CYGWIN*) echo "passo: no Windows, use o install.ps1 (irm https://raw.githubusercontent.com/$repo/main/install.ps1 | iex)" >&2; exit 1 ;;
+  *) echo "passo: sistema não suportado: $(uname -s) (há builds para macOS, Linux e Windows)" >&2; exit 1 ;;
 esac
 case "$(uname -m)" in
   x86_64 | amd64) arch="x86_64" ;;

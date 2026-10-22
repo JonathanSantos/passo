@@ -95,13 +95,17 @@ pub fn tool(raw: &Value, cwd: Option<&Path>, name_keys: &[&str], input_keys: &[&
         .map(|p| p.strip_prefix("file://").map(str::to_string).unwrap_or(p))
         .map(|p| absolute(&base, &p))
         .collect();
-    let cwd = cwd.map(|c| std::fs::canonicalize(c).unwrap_or_else(|_| c.to_path_buf()));
+    let cwd = cwd.map(|c| canonical(c).unwrap_or_else(|| c.to_path_buf()));
+    // A PowerShell tool runs a shell the lock does not read.
+    let foreign_shell =
+        kind == ToolKind::Exec && ["powershell", "pwsh"].iter().any(|s| name.to_lowercase().contains(s));
     Some(ToolUse {
         name,
         kind,
         paths,
         command,
         cwd,
+        foreign_shell,
     })
 }
 
@@ -109,15 +113,15 @@ fn absolute(base: &Path, path: &str) -> PathBuf {
     let path = PathBuf::from(path);
     let joined = if path.is_absolute() { path } else { base.join(path) };
     // Resolve symlinks (macOS /var → /private/var) so paths compare with the project root.
-    std::fs::canonicalize(&joined).unwrap_or_else(|_| {
-        match (
-            joined.parent().and_then(|p| std::fs::canonicalize(p).ok()),
-            joined.file_name(),
-        ) {
-            (Some(parent), Some(name)) => parent.join(name),
-            _ => joined,
-        }
+    canonical(&joined).unwrap_or_else(|| match (joined.parent().and_then(canonical), joined.file_name()) {
+        (Some(parent), Some(name)) => parent.join(name),
+        _ => joined,
     })
+}
+
+/// `canonicalize`, without the `\\?\` Windows adds (the root is written the same way).
+pub fn canonical(path: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok().map(passo_core::lock::plain)
 }
 
 #[cfg(test)]

@@ -128,7 +128,22 @@ fn check(root: &Path, platform: &dyn Platform, started: DateTime<Utc>) -> String
 /// A minimal environment, as an agent launched from a desktop shortcut might have: the PATH, the home, Passo's home;
 /// and the probe flag, so the hook writes nothing.
 fn environment() -> Vec<(&'static str, String)> {
-    let mut env: Vec<(&'static str, String)> = ["PATH", "HOME", "PASSO_HOME"]
+    // Windows programs also need these to start at all (SystemRoot) and to find the user's folders.
+    let keys = [
+        "PATH",
+        "HOME",
+        "PASSO_HOME",
+        "PASSO_SHELL",
+        "SYSTEMROOT",
+        "USERPROFILE",
+        "TEMP",
+        "TMP",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PATHEXT",
+        "COMSPEC",
+    ];
+    let mut env: Vec<(&'static str, String)> = keys
         .into_iter()
         .filter_map(|k| std::env::var(k).ok().map(|v| (k, v)))
         .collect();
@@ -137,8 +152,9 @@ fn environment() -> Vec<(&'static str, String)> {
 }
 
 fn on_path(program: &str) -> Option<PathBuf> {
+    let exe = format!("{program}{}", std::env::consts::EXE_SUFFIX);
     std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|dir| dir.join(program))
+        .flat_map(|dir| [dir.join(program), dir.join(&exe)])
         .find(|p| p.is_file())
 }
 
