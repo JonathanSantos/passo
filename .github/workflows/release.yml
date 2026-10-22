@@ -61,3 +61,32 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+  # The installers, run against the version just published, on each system.
+  verify:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os != 'Windows'
+        shell: bash
+        env:
+          PASSO_VERSION: ${{ github.ref_name }}
+          PASSO_INSTALL_DIR: ${{ runner.temp }}/passo-bin
+        run: |
+          sh install.sh
+          "$PASSO_INSTALL_DIR/passo" --version | grep -x "passo ${PASSO_VERSION#v}"
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PASSO_VERSION: ${{ github.ref_name }}
+          PASSO_INSTALL_DIR: ${{ runner.temp }}\passo-bin
+        run: |
+          ./install.ps1
+          $version = & "$env:PASSO_INSTALL_DIR\passo.exe" --version
+          if ($version -ne "passo $($env:PASSO_VERSION.TrimStart('v'))") { throw "versão inesperada: $version" }
