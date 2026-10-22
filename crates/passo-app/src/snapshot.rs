@@ -17,6 +17,9 @@ pub struct RunSummary {
     pub turn: Turn,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub proof: Option<passo_core::model::Proof>,
+    /// Delivered without the dev turning a delivery down first.
+    pub accepted_first: bool,
 }
 
 impl From<&Run> for RunSummary {
@@ -30,6 +33,12 @@ impl From<&Run> for RunSummary {
             turn: run.turn(),
             created_at: run.created_at,
             updated_at: run.updated_at,
+            proof: run.proof,
+            accepted_first: run.status == Status::Done
+                && !run
+                    .changes
+                    .iter()
+                    .any(|c| c.kind == passo_core::model::ChangeKind::Recusa && c.stage == Stage::Entregar),
         }
     }
 }
@@ -67,6 +76,9 @@ pub struct Snapshot {
     pub map_nodes: Vec<String>,
     /// Hooks failed since the run began.
     pub hook_warning: Option<String>,
+    /// Every run side by side and the summary per size, for the live dashboard.
+    #[serde(default)]
+    pub series: Option<crate::metrics::Aggregate>,
     /// The token limit of the run's size (0 = none).
     #[serde(default)]
     pub max_tokens: u64,

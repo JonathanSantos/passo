@@ -103,6 +103,7 @@ passo ui
 - **O log fica ancorado no git.** Cada commit do Passo leva o hash do último evento (`Passo-Audit:`), e na entrega (ou no `stop`) o log vai commitado em `.passo/audit/<run>/`, junto com o código. Um log reescrito ou encurtado até o último commit não bate com o histórico, e o `verify` diz.
 - **Mudanças no pedido** ficam registradas com quem, quando e o antes e depois: respostas, recusas, `passo change`, trocas de tamanho e cada versão do plano (`plan-v1.json`, `plan-v2.json`…).
 - **`passo stats`** mostra o que custou: tempo por etapa, **quantas vezes o dev foi chamado e quanto tempo o run esperou por ele**, tokens por etapa e por modelo, tentativas falhas, entregas inválidas, negações da trava, ações por passo (média e máximo) e escaladas para o nível forte.
+- **`passo stats --all`** responde "está valendo a pena?": uma linha por run, a mediana e o p90 de vezes do dev, tokens e tempo por tamanho, a taxa de entregas aceitas na primeira vez e a tendência dos últimos cinco runs contra os cinco anteriores (`--since 2026-10-01`, `--json`). A entrega guarda o `run.json` final em `.passo/audit/<run>/`, então a série sobrevive a um clone novo. O painel mostra o mesmo resumo.
 
 ## Comandos
 

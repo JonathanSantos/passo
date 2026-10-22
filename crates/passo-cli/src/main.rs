@@ -107,6 +107,12 @@ enum Cmd {
     Stats {
         #[arg(long)]
         run: Option<String>,
+        /// A série de todos os runs: por run, por tamanho e a tendência
+        #[arg(long, conflicts_with = "run")]
+        all: bool,
+        /// Com --all, só runs a partir desta data (AAAA-MM-DD)
+        #[arg(long, requires = "all")]
+        since: Option<String>,
         /// Saída em JSON
         #[arg(long)]
         json: bool,
@@ -254,7 +260,10 @@ fn run(command: Cmd) -> Result<String> {
         Cmd::Plan => plan(),
         Cmd::Runs => runs(),
         Cmd::Log { run, verify, n } => log(run, verify, n),
-        Cmd::Stats { run, json } => stats(run, json),
+        Cmd::Stats {
+            all: true, since, json, ..
+        } => stats_all(since, json),
+        Cmd::Stats { run, json, .. } => stats(run, json),
         Cmd::Ui { port, no_open } => {
             let app = app()?;
             passo_web::serve(app.layout.root.clone(), port, !no_open)?;
@@ -422,7 +431,7 @@ fn log(run: Option<String>, verify: bool, n: usize) -> Result<String> {
         Some(id) => app.store.load(&id)?,
         None => app.store.latest().ok_or_else(|| anyhow!("nenhum run ainda"))?,
     };
-    let log = app.store.log(&run.id);
+    let log = app.store.read_log(&run.id);
     if verify {
         let anchored = if app.uses_git(&run) {
             " e de acordo com os commits"
@@ -516,6 +525,24 @@ fn stats(run: Option<String>, json: bool) -> Result<String> {
         out.push_str("\nTokens: sem transcrições (o Claude Code registra pelos hooks; o Copilot ainda não expõe)\n");
     }
     Ok(out)
+}
+
+fn stats_all(since: Option<String>, json: bool) -> Result<String> {
+    let app = app()?;
+    let since = since
+        .map(|s| {
+            passo_app::metrics::day(&s)
+                .ok_or_else(|| anyhow!("data `{s}` não entendida: use AAAA-MM-DD, como 2026-10-01"))
+        })
+        .transpose()?;
+    let agg = app.stats_all(since)?;
+    if json {
+        return Ok(serde_json::to_string_pretty(&agg)?);
+    }
+    if agg.runs.is_empty() {
+        return Ok("Nenhum run nesse período.".into());
+    }
+    Ok(passo_app::render::series(&agg))
 }
 
 fn doctor() -> Result<String> {

@@ -7,10 +7,13 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use passo_adapters::Usage;
-use passo_core::{Actor, Run, Stage};
+use passo_core::model::Proof;
+use passo_core::{Actor, Run, Size, Stage, Status};
 use passo_store::Event;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::snapshot::RunSummary;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Tokens {
@@ -143,6 +146,173 @@ pub fn compute(run: &Run, events: &[Event], usage: &[Usage], now: DateTime<Utc>)
     m
 }
 
+/// One run in the series.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RunRow {
+    pub id: String,
+    pub created_at: DateTime<Utc>,
+    pub size: Size,
+    pub status: Status,
+    pub proof: Option<Proof>,
+    pub dev_turns: u32,
+    pub dev_wait_ms: i64,
+    pub steps_done: u32,
+    pub steps_failed: u32,
+    pub escalations: u32,
+    /// Billable tokens; `None` when no transcript was read.
+    pub tokens: Option<u64>,
+    pub total_ms: i64,
+    pub accepted_first: bool,
+}
+
+/// Median and 90th percentile (nearest rank).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct Spread {
+    pub median: f64,
+    pub p90: f64,
+}
+
+impl Spread {
+    pub fn of(values: &[f64]) -> Option<Spread> {
+        if values.is_empty() {
+            return None;
+        }
+        let mut sorted = values.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        let n = sorted.len();
+        let median = if n % 2 == 1 {
+            sorted[n / 2]
+        } else {
+            (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+        };
+        let rank = (0.9 * n as f64).ceil() as usize;
+        Some(Spread {
+            median,
+            p90: sorted[rank.clamp(1, n) - 1],
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SizeSummary {
+    pub size: Size,
+    pub runs: usize,
+    pub dev_turns: Option<Spread>,
+    pub tokens: Option<Spread>,
+    pub total_ms: Option<Spread>,
+    /// Of the runs that ended delivered, the share accepted on the first delivery (0 to 1).
+    pub accepted_first: Option<f64>,
+}
+
+/// One measure, the last five runs against the five before.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TrendLine {
+    pub measure: &'static str,
+    pub before: f64,
+    pub recent: f64,
+    /// `↓` went down, `↑` went up, `=` stayed (for all three, down is better).
+    pub arrow: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Aggregate {
+    pub runs: Vec<RunRow>,
+    pub by_size: Vec<SizeSummary>,
+    pub trend: Vec<TrendLine>,
+}
+
+const TREND_WINDOW: usize = 5;
+
+/// Reads one measure off a run, when it has it.
+type Measure = fn(&RunRow) -> Option<f64>;
+
+/// The series: one row per run (oldest first), a summary per size and the trend. Pure: no disk, no clock.
+pub fn aggregate(runs: &[(RunSummary, Metrics)]) -> Aggregate {
+    let mut rows: Vec<RunRow> = runs
+        .iter()
+        .map(|(run, m)| RunRow {
+            id: run.id.clone(),
+            created_at: run.created_at,
+            size: run.size,
+            status: run.status,
+            proof: run.proof,
+            dev_turns: m.dev_turns,
+            dev_wait_ms: m.dev_wait_ms,
+            steps_done: m.steps_done,
+            steps_failed: m.steps_failed,
+            escalations: m.escalations,
+            tokens: (m.tokens.calls > 0).then(|| m.tokens.billable()),
+            total_ms: m.total_ms,
+            accepted_first: run.accepted_first,
+        })
+        .collect();
+    rows.sort_by_key(|r| r.created_at);
+
+    let by_size = Size::ALL
+        .iter()
+        .filter_map(|&size| {
+            let of: Vec<&RunRow> = rows.iter().filter(|r| r.size == size).collect();
+            if of.is_empty() {
+                return None;
+            }
+            let delivered: Vec<&&RunRow> = of.iter().filter(|r| r.status == Status::Done).collect();
+            Some(SizeSummary {
+                size,
+                runs: of.len(),
+                dev_turns: Spread::of(&of.iter().map(|r| r.dev_turns as f64).collect::<Vec<_>>()),
+                tokens: Spread::of(&of.iter().filter_map(|r| r.tokens.map(|t| t as f64)).collect::<Vec<_>>()),
+                total_ms: Spread::of(&of.iter().map(|r| r.total_ms as f64).collect::<Vec<_>>()),
+                accepted_first: (!delivered.is_empty())
+                    .then(|| delivered.iter().filter(|r| r.accepted_first).count() as f64 / delivered.len() as f64),
+            })
+        })
+        .collect();
+
+    let split = rows.len().saturating_sub(TREND_WINDOW);
+    let (older, recent) = rows.split_at(split);
+    let before = &older[older.len().saturating_sub(TREND_WINDOW)..];
+    let mut trend = vec![];
+    if !before.is_empty() {
+        let measures: [(&'static str, Measure); 3] = [
+            ("vezes do dev", |r| Some(r.dev_turns as f64)),
+            ("tokens", |r| r.tokens.map(|t| t as f64)),
+            ("tempo", |r| Some(r.total_ms as f64)),
+        ];
+        for (measure, value) in measures {
+            let median =
+                |runs: &[RunRow]| Spread::of(&runs.iter().filter_map(value).collect::<Vec<_>>()).map(|s| s.median);
+            if let (Some(before), Some(recent)) = (median(before), median(recent)) {
+                let arrow = if recent < before {
+                    "↓"
+                } else if recent > before {
+                    "↑"
+                } else {
+                    "="
+                };
+                trend.push(TrendLine {
+                    measure,
+                    before,
+                    recent,
+                    arrow,
+                });
+            }
+        }
+    }
+    Aggregate {
+        runs: rows,
+        by_size,
+        trend,
+    }
+}
+
+/// `2026-10-01` as the start of that day, in UTC.
+pub fn day(text: &str) -> Option<DateTime<Utc>> {
+    chrono::NaiveDate::parse_from_str(text.trim(), "%Y-%m-%d")
+        .ok()
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .map(|d| d.and_utc())
+}
+
 pub fn duration(ms: i64) -> String {
     let secs = ms / 1000;
     match secs {
@@ -157,5 +327,71 @@ pub fn count(n: u64) -> String {
         0..1000 => n.to_string(),
         1000..1_000_000 => format!("{:.1}k", n as f64 / 1000.0),
         _ => format!("{:.2}M", n as f64 / 1_000_000.0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn run(day: u32, size: Size, dev_turns: u32, tokens: u64, minutes: i64, first: bool) -> (RunSummary, Metrics) {
+        let at = Utc.with_ymd_and_hms(2026, 10, day, 12, 0, 0).unwrap();
+        let summary = RunSummary {
+            id: format!("r{day}"),
+            request: "x".into(),
+            size,
+            stage: Stage::Entregar,
+            status: Status::Done,
+            turn: passo_core::Turn::None,
+            created_at: at,
+            updated_at: at,
+            proof: Some(Proof::Forte),
+            accepted_first: first,
+        };
+        let metrics = Metrics {
+            dev_turns,
+            total_ms: minutes * 60_000,
+            tokens: Tokens {
+                input: tokens,
+                calls: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        (summary, metrics)
+    }
+
+    #[test]
+    fn median_p90_and_the_trend_per_size() {
+        // Four m runs and two p runs; the last runs need the dev less.
+        let runs = vec![
+            run(1, Size::M, 5, 400_000, 30, false),
+            run(2, Size::M, 4, 300_000, 20, true),
+            run(3, Size::P, 3, 100_000, 10, true),
+            run(4, Size::M, 2, 200_000, 15, true),
+            run(5, Size::M, 1, 100_000, 10, true),
+            run(6, Size::P, 1, 50_000, 5, true),
+        ];
+        let agg = aggregate(&runs);
+        assert_eq!(agg.runs.len(), 6);
+        let m = agg.by_size.iter().find(|s| s.size == Size::M).unwrap();
+        assert_eq!(m.runs, 4);
+        assert_eq!(m.dev_turns, Some(Spread { median: 3.0, p90: 5.0 }));
+        assert_eq!(m.tokens.unwrap().median, 250_000.0);
+        assert_eq!(m.accepted_first, Some(0.75));
+        let p = agg.by_size.iter().find(|s| s.size == Size::P).unwrap();
+        assert_eq!(p.dev_turns, Some(Spread { median: 2.0, p90: 3.0 }));
+
+        // The last five (runs 2 to 6) against the one before (run 1): everything went down.
+        let dev = agg.trend.iter().find(|t| t.measure == "vezes do dev").unwrap();
+        assert_eq!((dev.before, dev.recent, dev.arrow), (5.0, 2.0, "↓"));
+        assert!(agg.trend.iter().all(|t| t.arrow == "↓"), "{:?}", agg.trend);
+    }
+
+    #[test]
+    fn five_runs_or_fewer_have_no_trend() {
+        let runs: Vec<_> = (1..=5).map(|d| run(d, Size::P, 1, 1, 1, true)).collect();
+        assert!(aggregate(&runs).trend.is_empty());
     }
 }

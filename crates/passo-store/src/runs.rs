@@ -69,8 +69,14 @@ impl Store {
         Ok(())
     }
 
+    /// The run in `runs/<id>/`, or, in a fresh clone, the final copy in `.passo/audit/<id>/`.
     pub fn load(&self, id: &str) -> Result<Run> {
         let path = self.layout.run_file(id);
+        let path = if path.is_file() {
+            path
+        } else {
+            self.layout.audit_dir(id).join("run.json")
+        };
         let text = std::fs::read_to_string(&path).with_context(|| format!("run {id} não encontrado"))?;
         serde_json::from_str(&text).with_context(|| format!("run {id} ilegível"))
     }
@@ -102,22 +108,41 @@ impl Store {
             .or_else(|| self.list().into_iter().next())
     }
 
-    /// All runs, newest first.
+    /// All runs, newest first: the ones in `runs/` and the archived ones a fresh clone only has in `audit/`.
     pub fn list(&self) -> Vec<Run> {
-        let Ok(entries) = std::fs::read_dir(self.layout.runs()) else {
-            return vec![];
+        let ids = |dir: PathBuf| -> Vec<String> {
+            std::fs::read_dir(dir)
+                .map(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
         };
-        let mut runs: Vec<Run> = entries
-            .filter_map(|e| e.ok())
-            .filter_map(|e| e.file_name().to_str().map(str::to_string))
-            .filter_map(|id| self.load(&id).ok())
-            .collect();
+        let mut all = ids(self.layout.runs());
+        for id in ids(self.layout.passo().join("audit")) {
+            if !all.contains(&id) {
+                all.push(id);
+            }
+        }
+        let mut runs: Vec<Run> = all.iter().filter_map(|id| self.load(id).ok()).collect();
         runs.sort_by_key(|r| std::cmp::Reverse(r.created_at));
         runs
     }
 
     pub fn log(&self, id: &str) -> EventLog {
         EventLog::new(self.layout.events(id))
+    }
+
+    /// The run's log for reading: `runs/<id>/events.jsonl`, or the archived copy when that one is gone.
+    pub fn read_log(&self, id: &str) -> EventLog {
+        let live = self.layout.events(id);
+        if live.is_file() {
+            EventLog::new(live)
+        } else {
+            EventLog::new(self.layout.audit_dir(id).join("events.jsonl"))
+        }
     }
 
     pub fn transcripts(&self, id: &str) -> Vec<Transcript> {
@@ -140,12 +165,13 @@ impl Store {
         Ok(())
     }
 
-    /// Copies the run's log and plan versions to `.passo/audit/<id>/`, the folder that goes into git. Returns the
-    /// folder, relative to the project root.
+    /// Copies the run's log, plan versions and final `run.json` to `.passo/audit/<id>/`, the folder that goes into
+    /// git (a finished run does not change, and the series in `passo stats --all` survives a fresh clone). Returns
+    /// the folder, relative to the project root.
     pub fn archive(&self, id: &str) -> Result<PathBuf> {
         let dir = self.layout.audit_dir(id);
         std::fs::create_dir_all(&dir)?;
-        let mut files = vec![self.layout.events(id)];
+        let mut files = vec![self.layout.events(id), self.layout.run_file(id)];
         if let Ok(entries) = std::fs::read_dir(self.layout.run_dir(id)) {
             files.extend(entries.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| {
                 p.file_name()

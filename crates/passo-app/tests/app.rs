@@ -1305,3 +1305,30 @@ fn a_run_past_its_token_limit_stops_for_the_dev_and_the_transcript_is_read_once(
     assert_eq!(run.stage, Stage::Refinar);
     std::fs::remove_file(&transcript).ok();
 }
+
+#[test]
+fn the_series_reads_every_run_even_the_archived_ones() {
+    let p = Project::new("series");
+    for (id, day) in [("s1", 1), ("s2", 5), ("s3", 9)] {
+        let at = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 10, day, 12, 0, 0).unwrap();
+        let mut run = passo_core::Run::new(id, "pedido", passo_core::Size::M, at);
+        run.status = Status::Done;
+        run.updated_at = at + chrono::Duration::minutes(10);
+        p.app().store.save(&run).unwrap();
+        p.app().store.archive(id).unwrap();
+    }
+    // A fresh clone has only the archived copy.
+    std::fs::remove_dir_all(p.root.join(".passo/runs/s1")).unwrap();
+
+    let agg = p.app().stats_all(None).unwrap();
+    assert_eq!(agg.runs.len(), 3);
+    let text = passo_app::render::series(&agg);
+    assert!(text.contains("Runs (3)") && text.contains("m: 3 runs"), "{text}");
+    assert_eq!(text.lines().filter(|l| l.contains("concluído")).count(), 3, "{text}");
+
+    let since = passo_app::metrics::day("2026-10-05");
+    assert_eq!(p.app().stats_all(since).unwrap().runs.len(), 2);
+
+    let json: serde_json::Value = serde_json::to_value(&agg).unwrap();
+    assert!(json["runs"].is_array() && json["by_size"][0]["runs"] == 3, "{json}");
+}

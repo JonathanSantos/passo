@@ -858,3 +858,84 @@ pub fn learn_proposals(proposals: &[passo_core::spec::Proposal], bin: &str) -> S
     );
     out
 }
+
+/// `passo stats --all`: a row per run, a summary per size and the trend.
+pub fn series(agg: &crate::metrics::Aggregate) -> String {
+    use crate::metrics::{count, duration};
+    let mut out = format!("Runs ({})\n", agg.runs.len());
+    let _ = writeln!(
+        out,
+        "{:<6} {:<4} {:<12} {:<8} {:>3} {:>10} {:>6} {:>6} {:>9} {:>8} {:>10}",
+        "data", "tam", "estado", "prova", "dev", "espera", "passos", "falhas", "escaladas", "tokens", "tempo"
+    );
+    for r in &agg.runs {
+        let status = match r.status {
+            Status::Active => "em andamento",
+            Status::Done => "concluído",
+            Status::Aborted => "interrompido",
+        };
+        let _ = writeln!(
+            out,
+            "{:<6} {:<4} {:<12} {:<8} {:>3} {:>10} {:>6} {:>6} {:>9} {:>8} {:>10}",
+            r.created_at.format("%d/%m"),
+            r.size.id(),
+            status,
+            r.proof.map(|p| p.label()).unwrap_or("—"),
+            r.dev_turns,
+            duration(r.dev_wait_ms),
+            r.steps_done,
+            r.steps_failed,
+            r.escalations,
+            r.tokens.map(count).unwrap_or_else(|| "—".into()),
+            duration(r.total_ms)
+        );
+    }
+    out.push_str("\nPor tamanho (mediana, p90 entre parênteses)\n");
+    let spread = |s: Option<crate::metrics::Spread>, show: &dyn Fn(f64) -> String| match s {
+        Some(s) => format!("{} ({})", show(s.median), show(s.p90)),
+        None => "—".into(),
+    };
+    let plain = |v: f64| {
+        if v.fract() == 0.0 {
+            format!("{v:.0}")
+        } else {
+            format!("{v:.1}").replace('.', ",")
+        }
+    };
+    let tokens = |v: f64| count(v as u64);
+    let time = |v: f64| duration(v as i64);
+    for s in &agg.by_size {
+        let first = s
+            .accepted_first
+            .map(|r| format!("{:.0}%", r * 100.0))
+            .unwrap_or_else(|| "—".into());
+        let _ = writeln!(
+            out,
+            "{}: {} runs · vezes do dev {} · tokens {} · tempo {} · aceitas na primeira entrega {first}",
+            s.size.id(),
+            s.runs,
+            spread(s.dev_turns, &plain),
+            spread(s.tokens, &tokens),
+            spread(s.total_ms, &time)
+        );
+    }
+    if !agg.trend.is_empty() {
+        out.push_str("\nTendência (mediana dos últimos 5 runs contra os 5 anteriores; ↓ é melhor)\n");
+        for t in &agg.trend {
+            let show = |v: f64| match t.measure {
+                "tokens" => tokens(v),
+                "tempo" => time(v),
+                _ => plain(v),
+            };
+            let _ = writeln!(
+                out,
+                "{:<13} {} {} → {}",
+                t.measure,
+                t.arrow,
+                show(t.before),
+                show(t.recent)
+            );
+        }
+    }
+    out
+}

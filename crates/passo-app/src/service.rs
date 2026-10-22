@@ -641,7 +641,7 @@ impl App {
     /// Checks the log's chain and, with git, that the newest `Passo-Audit` trailer on the run's branch names an
     /// event that is still in the log. `Ok(n)` with the number of events, or what is wrong.
     pub fn verify_audit(&self, run: &Run) -> Result<std::result::Result<usize, String>> {
-        let log = self.store.log(&run.id);
+        let log = self.store.read_log(&run.id);
         let count = match log.verify()? {
             Ok(count) => count,
             Err((seq, why)) => return Ok(Err(format!("evento {seq}: {why}"))),
@@ -1152,8 +1152,21 @@ impl App {
     }
 
     pub fn metrics(&self, run: &Run) -> Result<metrics::Metrics> {
-        let events = self.store.log(&run.id).read()?;
+        let events = self.store.read_log(&run.id).read()?;
         Ok(metrics::compute(run, &events, &self.usage(run), self.clock.now()))
+    }
+
+    /// The series across runs, for `passo stats --all` and the dashboard: runs created on or after `since`.
+    pub fn stats_all(&self, since: Option<chrono::DateTime<chrono::Utc>>) -> Result<metrics::Aggregate> {
+        let mut runs = vec![];
+        for run in self.store.list() {
+            if since.is_some_and(|since| run.created_at < since) {
+                continue;
+            }
+            let metrics = self.metrics(&run)?;
+            runs.push((RunSummary::from(&run), metrics));
+        }
+        Ok(metrics::aggregate(&runs))
     }
 
     pub fn snapshot(&self, id: Option<&str>) -> Result<Snapshot> {
@@ -1178,8 +1191,7 @@ impl App {
             .collect();
         let (events, metrics, audit) = match &run {
             Some(run) => {
-                let log = self.store.log(&run.id);
-                let events = log.read()?;
+                let events = self.store.read_log(&run.id).read()?;
                 let metrics = metrics::compute(run, &events, &self.usage(run), self.clock.now());
                 let audit = self.verify_audit(run)?;
                 (events, Some(metrics), Some(audit))
@@ -1226,6 +1238,7 @@ impl App {
             map_nodes,
             hook_warning,
             max_tokens: self.config.profile(size).max_tokens,
+            series: self.stats_all(None).ok(),
             learn: match passo_store::learn::load_task(&self.layout) {
                 Some(task) if task.delivered() => Some(self.learn_text(&task)),
                 Some(_) => Some("O agente está aprendendo com os runs (passo learn).".into()),

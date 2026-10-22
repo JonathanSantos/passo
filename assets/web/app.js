@@ -244,6 +244,28 @@
     return `<div class="stat"><div class="v"${over ? ' style="color:var(--warn)"' : ""}>${num(run.tokens)} de ${num(s.max_tokens)}</div><div class="l">tokens do tamanho${run.tokens_accepted ? " · teto aceito pelo dev" : ""}</div><div class="track"><span class="fill" style="width:${pct}%${over ? ";background:var(--warn)" : ""}"></span></div></div>`;
   }
 
+  /// Every run side by side and the summary per size: is the harness worth it? Live panel only.
+  function series(s) {
+    const el = $("series");
+    const agg = s.series;
+    if (!live || !agg || agg.runs.length < 2) {
+      el.style.display = "none";
+      return;
+    }
+    el.style.display = "block";
+    const STATUS = { active: "em andamento", done: "concluído", aborted: "interrompido" };
+    const rows = [...agg.runs].reverse().slice(0, 12).map((r) =>
+      `<tr><td>${new Date(r.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</td><td>${esc(r.size.toUpperCase())}</td><td>${esc(STATUS[r.status] || r.status)}</td><td class="n">${r.dev_turns}</td><td class="n">${r.tokens == null ? "—" : num(r.tokens)}</td><td class="n">${ms(r.total_ms)}</td></tr>`).join("");
+    const spread = (x, f) => (x ? `${f(x.median)} <span class="faint">(${f(x.p90)})</span>` : "—");
+    const plain = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1).replace(".", ","));
+    const sizes = agg.by_size.map((z) =>
+      `<tr><td>${esc(z.size.toUpperCase())}</td><td class="n">${z.runs}</td><td class="n">${spread(z.dev_turns, plain)}</td><td class="n">${spread(z.tokens, num)}</td><td class="n">${spread(z.total_ms, ms)}</td><td class="n">${z.accepted_first == null ? "—" : Math.round(z.accepted_first * 100) + "%"}</td></tr>`).join("");
+    const trend = agg.trend.map((t) => `${esc(t.measure)} ${t.arrow}`).join(" · ");
+    el.innerHTML = `<h2>Runs</h2><table class="series"><tr><th>data</th><th>tam.</th><th>estado</th><th class="n">dev</th><th class="n">tokens</th><th class="n">tempo</th></tr>${rows}</table>
+      <h2 style="margin-top:14px">Por tamanho</h2><table class="series"><tr><th></th><th class="n">runs</th><th class="n">dev</th><th class="n">tokens</th><th class="n">tempo</th><th class="n">1ª entrega</th></tr>${sizes}</table>
+      <p class="faint small" style="margin-top:8px">Mediana (p90).${trend ? " Últimos 5 contra os 5 anteriores: " + esc(trend) + " (↓ é melhor)." : ""}</p>`;
+  }
+
   function metrics(s) {
     const m = s.metrics;
     if (!m) return ($("metrics").innerHTML = "");
@@ -332,6 +354,7 @@
     plan(s);
     checks(s);
     metrics(s);
+    series(s);
     activity(s);
   }
 

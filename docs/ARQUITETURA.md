@@ -70,7 +70,7 @@ A cadeia sozinha só detecta edição: quem reescreve o arquivo inteiro recomput
 
 ## Métricas
 
-As métricas saem do log, não de contadores paralelos: o tempo de cada etapa vem dos eventos `stage.entered`; as vezes do dev e a espera dele, de `gate.opened` até o próximo evento do dev; as falhas, as negações da trava, as entregas inválidas e as escaladas (`step.escalated`), dos eventos de mesmo nome; as ações por passo, dos eventos `tool`, que guardam o passo. Os tokens vêm das transcrições que os hooks informam, atribuídos a cada etapa pelo horário.
+As métricas saem do log, não de contadores paralelos: o tempo de cada etapa vem dos eventos `stage.entered`; as vezes do dev e a espera dele, de `gate.opened` até o próximo evento do dev; as falhas, as negações da trava, as entregas inválidas e as escaladas (`step.escalated`), dos eventos de mesmo nome; as ações por passo, dos eventos `tool`, que guardam o passo. Os tokens vêm das transcrições que os hooks informam, atribuídos a cada etapa pelo horário. A série de `passo stats --all` é a mesma conta run a run, agregada por uma função pura (`metrics::aggregate`), lendo também os runs que só existem em `.passo/audit/<id>/` (a entrega e o `stop` arquivam ali o `run.json` final).
 
 O orçamento de ações (`max_tool_calls` por tamanho) também lê o hook: `PreToolUse` conta só as chamadas que a trava deixou passar, por passo e tentativa (por etapa fora de Construir), em `budget.json`. Passou do limite, o hook não nega: responde `additionalContext` pedindo para entregar ou perguntar, na primeira vez e a cada 20 ações, e a primeira deixa `step.budget` no log.
 
