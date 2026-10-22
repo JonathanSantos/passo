@@ -704,7 +704,12 @@ impl<'a> Engine<'a> {
         run.awaiting_coverage = false;
         let rule = &self.config.checks.coverage;
         if !coverage.measured {
-            out.event(run, "coverage.skipped", Actor::Passo, coverage.summary());
+            let kind = if coverage.failed {
+                "coverage.failed"
+            } else {
+                "coverage.skipped"
+            };
+            out.event(run, kind, Actor::Passo, coverage.summary());
             run.coverage = Some(coverage);
             self.after_checks(run, out, now);
             return Ok(());
@@ -1224,12 +1229,13 @@ impl<'a> Engine<'a> {
         let final_ok = !run.checks.is_empty() && run.checks.iter().all(|c| c.ok);
         let reviewed = !run.criteria.is_empty() && run.criteria.iter().all(|c| c.ok == Some(true));
         let rule = &self.config.checks.coverage;
-        // Configured, the coverage is the third thing a strong proof needs.
+        // Configured and measured, the coverage is the third thing a strong proof needs. Not measured (no git, the
+        // tool failed), the proof comes from the checks and the review, and the delivery says why it was not.
         let covered = !rule.on()
             || run
                 .coverage
                 .as_ref()
-                .is_some_and(|c| c.measured && c.percent >= rule.min_diff);
+                .is_none_or(|c| !c.measured || c.percent >= rule.min_diff);
         match (final_ok, reviewed) {
             (true, true) if covered => Proof::Forte,
             (true, true) => Proof::Media,

@@ -774,6 +774,7 @@ fn measured(percent: u32, uncovered: &[(&str, &[u32])]) -> passo_core::coverage:
         lines: 20,
         uncovered: uncovered.iter().map(|(f, l)| (f.to_string(), l.to_vec())).collect(),
         reason: String::new(),
+        failed: false,
     }
 }
 
@@ -850,7 +851,7 @@ fn required_coverage_becomes_a_correction_step() {
 }
 
 #[test]
-fn unmeasured_coverage_is_skipped_and_the_proof_stays_medium() {
+fn unmeasured_coverage_is_said_and_does_not_lower_the_proof() {
     let config = coverage_config(true);
     let mut sim = Sim::start(&config, Size::M);
     to_coverage(&mut sim);
@@ -858,9 +859,22 @@ fn unmeasured_coverage_is_skipped_and_the_proof_stays_medium() {
         "sem git",
     )))
     .unwrap();
-    assert!(sim.events.iter().any(|e| e.kind == "coverage.skipped"));
+    assert!(
+        sim.events
+            .iter()
+            .any(|e| e.kind == "coverage.skipped" && e.text == "Cobertura: não medida (sem git)")
+    );
     review_all_ok(&mut sim);
-    assert_eq!(sim.run.proof, Some(Proof::Media));
+    assert_eq!(sim.run.proof, Some(Proof::Forte));
+
+    let mut failing = Sim::start(&config, Size::M);
+    to_coverage(&mut failing);
+    failing
+        .apply(Command::Coverage(passo_core::coverage::DiffCoverage::failed(
+            "o comando de cobertura falhou: cargo-llvm-cov não instalado",
+        )))
+        .unwrap();
+    assert!(failing.events.iter().any(|e| e.kind == "coverage.failed"));
 }
 
 #[test]

@@ -28,6 +28,9 @@ pub struct DiffCoverage {
     /// Why it was not measured.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reason: String,
+    /// Not measured because the coverage command failed (the reason carries the end of its output).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
 }
 
 impl DiffCoverage {
@@ -38,6 +41,14 @@ impl DiffCoverage {
         }
     }
 
+    /// The coverage command ran and failed.
+    pub fn failed(reason: impl Into<String>) -> DiffCoverage {
+        DiffCoverage {
+            failed: true,
+            ..DiffCoverage::skipped(reason)
+        }
+    }
+
     pub fn uncovered_lines(&self) -> usize {
         self.uncovered.iter().map(|(_, l)| l.len()).sum()
     }
@@ -45,7 +56,7 @@ impl DiffCoverage {
     /// `Cobertura do diff: 83% (12 linhas sem teste em 2 arquivos)`.
     pub fn summary(&self) -> String {
         if !self.measured {
-            return format!("Cobertura do diff não medida: {}", self.reason);
+            return format!("Cobertura: não medida ({})", self.reason);
         }
         if self.uncovered.is_empty() {
             return format!("Cobertura do diff: {}%", self.percent);
@@ -152,6 +163,7 @@ pub fn diff_coverage(changed: &Lines, executed: &Lines, instrumented: &Lines) ->
         lines,
         uncovered,
         reason: String::new(),
+        failed: false,
     }
 }
 

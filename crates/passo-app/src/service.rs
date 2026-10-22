@@ -859,8 +859,9 @@ impl App {
         let text = std::fs::read_to_string(&out).unwrap_or_default();
         std::fs::remove_dir_all(&dir).ok();
         if !ran.ok {
-            let tail = ran.output.lines().last().unwrap_or("").to_string();
-            return DiffCoverage::skipped(self.redact(&format!("o comando de cobertura falhou: {tail}")));
+            let lines: Vec<&str> = ran.output.lines().filter(|l| !l.trim().is_empty()).collect();
+            let tail = lines[lines.len().saturating_sub(3)..].join(" · ");
+            return DiffCoverage::failed(self.redact(&format!("o comando de cobertura falhou: {tail}")));
         }
         if text.trim().is_empty() {
             return DiffCoverage::skipped("o comando de cobertura não escreveu o lcov");
