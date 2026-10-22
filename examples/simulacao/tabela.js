@@ -45,7 +45,7 @@ function duration(ms) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}min ${s % 60}s`;
 }
 
-/// Median, with the range in parentheses when the rounds differ; `—` when nothing was measured.
+// Median, with the range in parentheses when the rounds differ; `—` when nothing was measured.
 function stat(values, format = plain) {
   const v = numbers(values);
   if (v.length === 0) return "—";

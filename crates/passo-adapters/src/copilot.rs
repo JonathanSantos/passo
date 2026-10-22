@@ -194,6 +194,36 @@ mod tests {
     use crate::AgentSpec;
 
     #[test]
+    fn each_agent_gets_the_model_it_asks_for() {
+        let root = std::env::temp_dir().join(format!("passo-copilot-twin-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        let spec = |name: &str, model: &str| AgentSpec {
+            name: name.into(),
+            description: "d".into(),
+            model: Some(model.into()),
+            tools: vec![],
+            body: "b".into(),
+        };
+        let agents = vec![
+            spec("construtor", "Claude Haiku 5.5"),
+            spec("construtor-forte", "Claude Sonnet 5.5"),
+        ];
+        let ctx = InstallContext {
+            root: &root,
+            bin: "passo",
+            skill: "skill",
+            agents: &agents,
+        };
+        Copilot.install(&ctx).unwrap();
+        let twin = std::fs::read_to_string(root.join(".github/agents/passo-construtor-forte.agent.md")).unwrap();
+        assert!(twin.contains("model: \"Claude Sonnet 5.5\""), "{twin}");
+        let cheap = std::fs::read_to_string(root.join(".github/agents/passo-construtor.agent.md")).unwrap();
+        assert!(cheap.contains("model: \"Claude Haiku 5.5\""), "{cheap}");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn installs_agents_hooks_and_keeps_instructions() {
         let root = std::env::temp_dir().join(format!("passo-copilot-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();

@@ -996,3 +996,51 @@ pub fn series(agg: &crate::metrics::Aggregate) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use passo_core::model::Step;
+
+    #[test]
+    fn builder_notes_mix_three_rules_in_order_without_repeats() {
+        let mut run = Run::new("r1", "x", passo_core::Size::M, chrono::Utc::now());
+        run.steps = vec![
+            Step {
+                id: "S1".into(),
+                status: StepStatus::Done,
+                files: vec!["src/a.rs".into()],
+                ..Default::default()
+            },
+            Step {
+                id: "S2".into(),
+                status: StepStatus::Doing,
+                files: vec!["src/x.rs".into()],
+                ..Default::default()
+            },
+        ];
+        run.notes = [
+            "S1: mexi em src/x.rs também",
+            "nota velha sem relação",
+            "Revisão: falta teste do filtro",
+            "n1",
+            "n2",
+            "n3",
+            "n4",
+            "Revisão: falta teste do filtro",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(
+            builder_notes(&run),
+            vec![
+                "S1: mexi em src/x.rs também",
+                "Revisão: falta teste do filtro",
+                "n1",
+                "n2",
+                "n3",
+                "n4"
+            ]
+        );
+    }
+}

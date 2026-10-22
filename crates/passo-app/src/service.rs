@@ -224,7 +224,7 @@ impl App {
         let (mut run, out) = self.engine().start(&id, request, size, now);
         run.workspace = Some(workspace);
         self.store.set_current(Some(&id))?;
-        self.write_tree(&run);
+        self.write_tree(&run)?;
         let run = self.persist(run, out, None)?;
         let mut lines: Vec<String> = self.attached_warnings();
         lines.extend(self.map_stale_line(&run));
@@ -233,7 +233,8 @@ impl App {
     }
 
     /// Lists the repository tree for the run (on start, and again when the dev changes the request).
-    fn write_tree(&self, run: &Run) {
+    /// A tree that cannot be written is logged (refining reads it), and a log that cannot be written is an error.
+    fn write_tree(&self, run: &Run) -> Result<()> {
         let git = self.uses_git(run).then(|| self.git());
         let tree = crate::tree::build(&self.layout.root, git.as_ref(), &self.config, 60);
         if let Err(e) = passo_store::layout::write_atomic(&self.layout.tree(&run.id), tree.as_bytes()) {
@@ -243,8 +244,9 @@ impl App {
                 Actor::Passo,
                 format!("A árvore do repositório não foi gravada: {e}"),
             );
-            self.store.log(&run.id).append(&run.id, &[event], self.clock.now()).ok();
+            self.store.log(&run.id).append(&run.id, &[event], self.clock.now())?;
         }
+        Ok(())
     }
 
     fn prepare_workspace(&self, id: &str) -> Result<Workspace> {
@@ -537,7 +539,7 @@ impl App {
             self.leave_branch(&next)?;
         }
         if changing {
-            self.write_tree(&next);
+            self.write_tree(&next)?;
         }
         Ok(next)
     }
@@ -1186,7 +1188,7 @@ impl App {
 
     /// Token usage from the run's transcripts, oldest first. Each file is read again only when it changed since
     /// the last time (`runs/<id>/usage.json` keeps its length, its modification time and what it held).
-    pub fn usage(&self, run: &Run) -> Vec<Usage> {
+    pub fn usage(&self, run: &Run) -> Result<Vec<Usage>> {
         let transcripts = self.store.transcripts(&run.id);
         let path = self.layout.usage(&run.id);
         let cached: Vec<UsageFile> = std::fs::read_to_string(&path)
@@ -1228,23 +1230,22 @@ impl App {
                 });
             }
         }
-        if files != cached
-            && let Ok(text) = serde_json::to_string(&files)
-        {
-            passo_store::layout::write_atomic(&path, text.as_bytes()).ok();
+        if files != cached {
+            passo_store::layout::write_atomic(&path, serde_json::to_string(&files)?.as_bytes())?;
         }
         let mut out: Vec<Usage> = files.into_iter().flat_map(|f| f.samples).collect();
         out.sort_by_key(|u| u.t);
-        out
+        Ok(out)
     }
 
     /// Billable tokens (input + output + cache writes) the run spent since it began.
-    pub fn run_tokens(&self, run: &Run) -> u64 {
-        self.usage(run)
+    pub fn run_tokens(&self, run: &Run) -> Result<u64> {
+        Ok(self
+            .usage(run)?
             .iter()
             .filter(|u| u.t >= run.created_at)
             .map(|u| u.input + u.output + u.cache_write)
-            .sum()
+            .sum())
     }
 
     /// Measures the active run's tokens and hands the total to the engine when it matters: it changed, or it is
@@ -1253,7 +1254,7 @@ impl App {
         if !run.active() {
             return Ok(run);
         }
-        let tokens = self.run_tokens(&run);
+        let tokens = self.run_tokens(&run)?;
         let max = self.config.profile(run.size).max_tokens;
         let pending = max > 0 && tokens > max && !run.tokens_accepted && run.gate.is_none();
         if tokens == run.tokens && !pending {
@@ -1264,7 +1265,7 @@ impl App {
 
     pub fn metrics(&self, run: &Run) -> Result<metrics::Metrics> {
         let events = self.store.read_log(&run.id).read()?;
-        Ok(metrics::compute(run, &events, &self.usage(run), self.clock.now()))
+        Ok(metrics::compute(run, &events, &self.usage(run)?, self.clock.now()))
     }
 
     /// The series across runs, for `passo stats --all` and the dashboard: runs created on or after `since`.
@@ -1303,7 +1304,7 @@ impl App {
         let (events, metrics, audit) = match &run {
             Some(run) => {
                 let events = self.store.read_log(&run.id).read()?;
-                let metrics = metrics::compute(run, &events, &self.usage(run), self.clock.now());
+                let metrics = metrics::compute(run, &events, &self.usage(run)?, self.clock.now());
                 let audit = self.verify_audit(run)?;
                 (events, Some(metrics), Some(audit))
             }

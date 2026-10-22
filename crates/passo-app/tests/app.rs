@@ -1064,10 +1064,13 @@ fn copilot_gets_the_strong_twin_too() {
     std::fs::remove_dir_all(&root).ok();
     std::fs::create_dir_all(&root).unwrap();
     setup::init(&root, &["copilot".into()], "passo").unwrap();
+    // The twin gets the strong tier's model, whatever the platform calls it.
+    let app = App::open(&root).unwrap();
+    let model = |tier: &str| app.config.model(tier, "copilot").unwrap().to_string();
     let twin = std::fs::read_to_string(root.join(".github/agents/passo-construtor-forte.agent.md")).unwrap();
-    assert!(twin.contains("model: \"Claude Sonnet 5.5\""), "{twin}");
+    assert!(twin.contains(&format!("model: \"{}\"", model("forte"))), "{twin}");
     let cheap = std::fs::read_to_string(root.join(".github/agents/passo-construtor.agent.md")).unwrap();
-    assert!(cheap.contains("model: \"Claude Haiku 5.5\""), "{cheap}");
+    assert!(cheap.contains(&format!("model: \"{}\"", model("leve"))), "{cheap}");
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -1578,4 +1581,44 @@ fn without_git_the_finished_run_is_archived_too() {
     assert!(p.root.join(".passo/audit").join(&stopped).join("run.json").is_file());
     std::fs::remove_dir_all(p.root.join(".passo/runs")).unwrap();
     assert_eq!(p.app().stats_all(None).unwrap().runs.len(), 2);
+}
+
+#[test]
+fn a_builder_already_on_the_strong_tier_does_not_escalate() {
+    let p = Project::new("no-escalate");
+    p.write(
+        ".passo/agents/construtor.md",
+        "---\nextends: construtor\nmodel: forte\n---\n",
+    );
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-qm", "construtor forte"]);
+    p.app().start("Algo médio", None).unwrap();
+    p.done(&p.draft("brief-noesc", r#"{"entendimento":"x","escopo":["a"]}"#));
+    p.done(&p.draft(
+        "plan-noesc",
+        r#"{"titulo":"T","criterios":["c"],"passos":[{"titulo":"S","criterios":["C1"]}]}"#,
+    ));
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    std::fs::remove_file(p.root.join("src/lib.txt")).unwrap();
+    let out = p.done("quebrei a checagem");
+    assert!(!out.contains("passo-construtor-forte"), "{out}");
+    let run = p.app().active().unwrap();
+    let log = std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("events.jsonl")).unwrap();
+    assert!(
+        !log.contains("step.escalated"),
+        "the tier comes from the catalog, already forte"
+    );
+}
+
+#[test]
+fn the_tree_leaves_build_output_out() {
+    let p = Project::new("tree-target");
+    p.write(".gitignore", "target/\n");
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-qm", "ignora target"]);
+    p.write("target/debug/x.txt", "build\n");
+    p.app().start("Algo médio", None).unwrap();
+    let run = p.app().active().unwrap();
+    let tree = std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("tree.md")).unwrap();
+    assert!(tree.contains("src/") && !tree.contains("target"), "{tree}");
 }
