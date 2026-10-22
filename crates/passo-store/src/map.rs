@@ -193,6 +193,36 @@ pub fn save(layout: &Layout, map: &Map) -> Result<Vec<PathBuf>> {
     Ok(touched)
 }
 
+/// Sections a remap keeps: what the reviewer and `passo learn` wrote, and what the dev added under them.
+const KEPT_SECTIONS: [&str; 2] = ["## Anotações", "## Aprendido"];
+
+/// Where the kept sections start in a body, if any.
+fn kept_from(body: &str) -> Option<usize> {
+    KEPT_SECTIONS.iter().filter_map(|h| body.find(h)).min()
+}
+
+/// A new map from `passo map` keeps, area by area, the `## Anotações` and `## Aprendido` sections of the map it
+/// replaces: the new body replaces only what comes before them. Returns the areas that left the map, whose notes
+/// go with them.
+pub fn carry_notes(old: &Map, new: &mut Map) -> Vec<String> {
+    for area in &mut new.areas {
+        let Some(previous) = old.areas.iter().find(|a| a.id == area.id) else {
+            continue;
+        };
+        let Some(at) = kept_from(&previous.body) else { continue };
+        let fresh = match kept_from(&area.body) {
+            Some(cut) => &area.body[..cut],
+            None => area.body.as_str(),
+        };
+        area.body = format!("{}\n\n{}", fresh.trim_end(), previous.body[at..].trim());
+    }
+    old.areas
+        .iter()
+        .filter(|a| !a.attached() && !new.areas.iter().any(|n| n.id == a.id))
+        .map(|a| a.id.clone())
+        .collect()
+}
+
 /// The node as Markdown: frontmatter with its non-empty fields, in a fixed order, then the body.
 pub fn render(node: &Node) -> String {
     let mut fields = Mapping::new();
@@ -315,6 +345,21 @@ mod tests {
         let err = load(&layout).unwrap_err().to_string();
         assert!(err.contains("campo `modulo` desconhecido"), "{err}");
         std::fs::remove_dir_all(&layout.root).ok();
+    }
+
+    #[test]
+    fn a_remap_keeps_the_notes_and_lists_the_areas_that_left() {
+        let mut old = sample();
+        old.areas[1].body = "Regras antigas.\n\n## Anotações\n- (run r1) o filtro mudou".into();
+        let mut new = sample();
+        new.areas.remove(0);
+        new.areas[0].body = "Regras novas.".into();
+        let removed = carry_notes(&old, &mut new);
+        assert_eq!(removed, vec!["armazenamento".to_string()]);
+        assert_eq!(
+            new.areas[0].body,
+            "Regras novas.\n\n## Anotações\n- (run r1) o filtro mudou"
+        );
     }
 
     #[test]

@@ -1440,3 +1440,41 @@ fn the_snapshot_hides_secrets_in_every_field() {
         run.id
     );
 }
+
+#[test]
+fn a_second_mapping_keeps_the_notes_and_reads_the_current_map() {
+    let p = Project::new("remap");
+    p.app().map_start().unwrap();
+    p.done(&p.draft("remap-1", MAP_JSON));
+    let area = p.root.join(".passo/map/areas/tarefas.md");
+    let text = std::fs::read_to_string(&area).unwrap();
+    std::fs::write(
+        &area,
+        format!("{}\n## Anotações\n- (run r1) a lista mudou de ordem\n", text.trim_end()),
+    )
+    .unwrap();
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-q", "-m", "mapa"]);
+
+    let task = p.app().map_start().unwrap();
+    assert!(
+        task.contains("### tarefas") && task.contains("a lista mudou de ordem"),
+        "{task}"
+    );
+    let read = p.hook(
+        HookEvent::PreToolUse,
+        tool(
+            &p.root,
+            "Read",
+            serde_json::json!({"file_path": area.display().to_string()}),
+        ),
+    );
+    assert!(read.is_none(), "reading the map while mapping: {read:?}");
+    let out = p.done(&p.draft("remap-2", MAP_JSON));
+    assert!(out.contains("Mapa salvo"), "{out}");
+    let text = std::fs::read_to_string(&area).unwrap();
+    assert!(
+        text.contains("## Anotações\n- (run r1) a lista mudou de ordem"),
+        "{text}"
+    );
+}

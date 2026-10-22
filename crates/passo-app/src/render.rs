@@ -780,14 +780,22 @@ pub fn map_task(view: &MapView) -> String {
         );
     }
     if let Some(map) = view.current {
-        out.push_str("## O mapa atual (atualize o que mudou, mantenha o resto)\n");
-        for area in &map.areas {
+        out.push_str(
+            "## O mapa atual (atualize o que mudou, mantenha o resto; as seções `## Anotações` e `## Aprendido` o Passo preserva)\n",
+        );
+        for area in map.areas.iter().filter(|a| !a.attached()) {
             let mark = if view.changed.contains(&area.id) {
                 " · mudou desde que foi escrita"
             } else {
                 ""
             };
-            let _ = writeln!(out, "- {} ({}){mark}", area.id, area.paths.join(", "));
+            let _ = writeln!(
+                out,
+                "### {} ({}){mark}\n{}\n",
+                area.id,
+                area.paths.join(", "),
+                area.body.trim()
+            );
         }
         for lib in &map.libs {
             let _ = writeln!(out, "- lib {}", lib.id);

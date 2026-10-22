@@ -187,7 +187,7 @@ Testes em `test/tasks.test.js`, com `node:test`, um `describe` por comando, sem 
 | `sources`    | arquivos que sustentam o que o corpo afirma                          |
 | `commit`     | commit em que a área foi escrita ou confirmada (entre aspas)         |
 
-O `projeto.md` aceita `sources` e `commit`; uma lib, `tags`, `sources` e `commit`. Chave desconhecida ou `depends_on` para área que não existe dão erro com o arquivo e a linha. Edite à mão à vontade: o que o Passo confere a mais é o que o agente entrega com `passo map`. O `context.md` continua acima do mapa: é o que você escreve e o mapa não substitui. `passo doctor` diz se há mapa, quantas áreas e de quando ele é.
+O `projeto.md` aceita `sources` e `commit`; uma lib, `tags`, `sources` e `commit`. Chave desconhecida ou `depends_on` para área que não existe dão erro com o arquivo e a linha. Edite à mão à vontade: o que o Passo confere a mais é o que o agente entrega com `passo map`. Um novo `passo map` reescreve o corpo de cada área, mas mantém as seções `## Anotações` (do revisor) e `## Aprendido` (do `passo learn`) e o que você escreveu abaixo delas; uma área que sai do mapa leva as anotações junto, e a saída diz quais saíram. Durante o mapeamento, o explorador pode ler `.passo/map/` e `.passo/context.md`, nunca escrever. O `context.md` continua acima do mapa: é o que você escreve e o mapa não substitui. `passo doctor` diz se há mapa, quantas áreas e de quando ele é.
 
 ### Projetos anexados
 

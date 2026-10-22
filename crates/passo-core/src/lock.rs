@@ -330,12 +330,21 @@ fn is_secret(path: &Path) -> bool {
         && !(name.ends_with(".example") || name.ends_with(".sample") || name.ends_with(".template"))
 }
 
-fn mentions_passo_dir(command: &str) -> bool {
+/// Whether a command names `.passo/`; with `map_readable`, the map and `context.md` do not count.
+fn mentions_passo_dir(command: &str, map_readable: bool) -> bool {
     command
         .split(|c: char| c.is_whitespace() || "'\"=<>;|&()".contains(c))
+        .filter(|word| !(map_readable && names_map(word)))
         .any(|word| {
             word == ".passo" || word.starts_with(".passo/") || word.contains("/.passo/") || word.ends_with("/.passo")
         })
+}
+
+/// `.passo/map/…` or `.passo/context.md`, written any way.
+fn names_map(word: &str) -> bool {
+    let word = word.trim_start_matches("./");
+    let at = word.find(".passo/").map(|i| &word[i..]).unwrap_or(word);
+    at.starts_with(".passo/map/") || at == ".passo/map" || at == ".passo/context.md"
 }
 
 fn inside_passo_dir(root: &Path, path: &Path) -> bool {
@@ -432,7 +441,17 @@ pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: 
         ));
     }
     let touched = || writes.iter().chain(reads.iter());
-    if touched().any(|p| inside_passo_dir(root, p)) || tool.command.as_deref().is_some_and(mentions_passo_dir) {
+    // An explorer or a learner reads the map and the conventions it is updating; nobody writes there but Passo.
+    let map_readable = matches!(activity, Activity::Mapping | Activity::Learning);
+    let readable =
+        |p: &PathBuf| map_readable && (p.starts_with(root.join(".passo/map")) || *p == root.join(".passo/context.md"));
+    let passo_dir = writes.iter().any(|p| inside_passo_dir(root, p))
+        || reads.iter().any(|p| inside_passo_dir(root, p) && !readable(p))
+        || tool
+            .command
+            .as_deref()
+            .is_some_and(|c| mentions_passo_dir(c, map_readable));
+    if passo_dir {
         return Verdict::Deny("a pasta .passo é do Passo: use `passo next`, `passo status` e `passo plan`".into());
     }
     if touched().any(|p| is_secret(p)) {
@@ -617,6 +636,31 @@ mod tests {
         );
         assert!(matches!(
             judge(&write("/p/.passo/map/x.md"), root, Activity::Mapping),
+            Verdict::Deny(_)
+        ));
+        // The explorer reads the map it updates and the conventions; the runs stay closed.
+        let read_map = ToolUse {
+            name: "Read".into(),
+            kind: ToolKind::Read,
+            paths: vec!["/p/.passo/map/areas/a.md".into()],
+            ..Default::default()
+        };
+        assert_eq!(judge(&read_map, root, Activity::Mapping), Verdict::Allow);
+        assert_eq!(
+            judge(
+                &exec("cat .passo/map/areas/a.md .passo/context.md"),
+                root,
+                Activity::Learning
+            ),
+            Verdict::Allow
+        );
+        let read_runs = ToolUse {
+            paths: vec!["/p/.passo/runs/r1/run.json".into()],
+            ..read_map.clone()
+        };
+        assert!(matches!(judge(&read_runs, root, Activity::Mapping), Verdict::Deny(_)));
+        assert!(matches!(
+            judge(&exec("echo x > .passo/map/areas/a.md"), root, Activity::Mapping),
             Verdict::Deny(_)
         ));
         assert_eq!(judge(&write("/tmp/mapa.json"), root, Activity::Mapping), Verdict::Allow);

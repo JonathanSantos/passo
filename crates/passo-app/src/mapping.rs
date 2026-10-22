@@ -58,7 +58,13 @@ impl App {
         let task = MapTask {
             started_at: self.now(),
             commit: if repo { git.head() } else { None },
-            projects: vec![self.layout.root.display().to_string()],
+            projects: std::iter::once(self.layout.root.display().to_string())
+                .chain(
+                    crate::service::attached_roots(&self.layout.root, &self.config)
+                        .into_iter()
+                        .map(|(_, root)| root.display().to_string()),
+                )
+                .collect(),
             baseline: if repo { git.dirty().unwrap_or_default() } else { vec![] },
             stops: 0,
         };
@@ -92,7 +98,7 @@ impl App {
             .filter(|(_, root)| root.is_dir())
             .map(|(name, root)| {
                 let git = crate::infra::Git::new(&root);
-                let tree = crate::tree::build(&root, git.is_repo().then_some(&git), &self.config, 40);
+                let tree = crate::tree::build(&root, git.is_repo().then_some(&git), &self.config, usize::MAX);
                 (name, tree)
             })
             .collect();
@@ -113,12 +119,33 @@ impl App {
         let Some(task) = store_map::load_task(&self.layout) else {
             bail!("não há mapeamento em andamento; comece com passo map");
         };
+        let git = self.git();
+        let repo = git.is_repo();
+        // The explorer has a terminal: an install rewrites a tracked lockfile without the hook seeing it.
+        if repo {
+            let changed: Vec<String> = git
+                .dirty()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|f| !task.baseline.contains(f))
+                .collect();
+            if !changed.is_empty() {
+                let text = format!(
+                    "O mapeamento é só leitura, mas estes arquivos mudaram: {}",
+                    changed.join(", ")
+                );
+                self.map_log("lock.breach", Actor::Agent, text.clone(), json!({ "files": changed }));
+                return Err(Rejected(format!(
+                    "{text}.\nDesfaça essas mudanças (nada de instalar ou gerar arquivos) e entregue de novo."
+                ))
+                .into());
+            }
+        }
+
         let text = read_input(&input.text)?;
         let root = &self.layout.root;
         let draft = spec::parse_map(&text, &manifest_libs(root)).map_err(|invalid| self.map_invalid(invalid))?;
 
-        let git = self.git();
-        let repo = git.is_repo();
         let tracked = project_files(root, repo.then_some(&git));
         let mut errors = vec![];
         for (i, area) in draft.areas.iter().enumerate() {
@@ -150,28 +177,12 @@ impl App {
             return Err(self.map_invalid(Invalid(errors)));
         }
 
-        // The explorer has a terminal: an install rewrites a tracked lockfile without the hook seeing it.
-        if repo {
-            let changed: Vec<String> = git
-                .dirty()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|f| !task.baseline.contains(f))
-                .collect();
-            if !changed.is_empty() {
-                let text = format!(
-                    "O mapeamento é só leitura, mas estes arquivos mudaram: {}",
-                    changed.join(", ")
-                );
-                self.map_log("lock.breach", Actor::Agent, text.clone(), json!({ "files": changed }));
-                return Err(Rejected(format!(
-                    "{text}.\nDesfaça essas mudanças (nada de instalar ou gerar arquivos) e entregue de novo."
-                ))
-                .into());
-            }
-        }
-
-        let map = draft.into_map(if repo { git.head() } else { None });
+        let mut map = draft.into_map(if repo { git.head() } else { None });
+        // A remap keeps what the reviewer and `passo learn` wrote in each area.
+        let removed = match store_map::load(&self.layout) {
+            Ok(Some(old)) => store_map::carry_notes(&old, &mut map),
+            _ => vec![],
+        };
         let (areas, libs) = (map.areas.len(), map.libs.len());
         store_map::save(&self.layout, &map)?;
         store_map::remove_task(&self.layout);
@@ -181,7 +192,14 @@ impl App {
             format!("Mapa salvo: {areas} áreas, {libs} libs"),
             json!({ "areas": areas, "libs": libs }),
         );
-        Ok(format!("Mapa salvo: {areas} áreas, {libs} libs. Commite .passo/map/."))
+        let removed = if removed.is_empty() {
+            String::new()
+        } else {
+            format!("\nÁreas removidas (e as anotações delas): {}.", removed.join(", "))
+        };
+        Ok(format!(
+            "Mapa salvo: {areas} áreas, {libs} libs. Commite .passo/map/.{removed}"
+        ))
     }
 
     fn map_invalid(&self, invalid: Invalid) -> anyhow::Error {
@@ -346,7 +364,12 @@ impl App {
         let Ok(Some(mut map)) = store_map::load(&self.layout) else {
             return vec![];
         };
-        let head = if self.uses_git(run) { self.git().head() } else { None };
+        // Without git there is no commit to date a confirmed area by; `sem-git` still says the review confirmed it.
+        let head = if self.uses_git(run) {
+            self.git().head()
+        } else {
+            Some("sem-git".to_string())
+        };
         let mut touched = false;
         for check in &run.map_checks {
             let Some(area) = map.areas.iter_mut().find(|a| a.id == check.id && !a.attached()) else {
