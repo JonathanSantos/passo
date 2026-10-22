@@ -1427,7 +1427,9 @@ enum Located {
 
 fn project_file(root: &Path, path: &str) -> Located {
     let relative = Path::new(path);
+    // `/etc/hosts` has no drive on Windows, so `is_absolute` says no; a rooted path is absolute anyway.
     if relative.is_absolute()
+        || relative.has_root()
         || relative
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))

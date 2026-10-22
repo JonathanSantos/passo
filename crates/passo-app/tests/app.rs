@@ -33,6 +33,8 @@ impl Project {
             root: passo_core::lock::plain(std::fs::canonicalize(&root).unwrap()),
         };
         project.git(&["init", "-q", "-b", "main"]);
+        // The Windows runner's git turns \n into \r\n on checkout; the tests compare bytes.
+        project.git(&["config", "core.autocrlf", "false"]);
         project.git(&["config", "user.email", "t@t"]);
         project.git(&["config", "user.name", "t"]);
         setup::init(&project.root, &["claude".into()], "passo").unwrap();

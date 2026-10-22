@@ -31,7 +31,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: git config --global user.email ci@passo.dev && git config --global user.name ci
-      - run: cargo test --workspace
+      - run: cargo test --workspace --no-fail-fast
 
   msrv:
     runs-on: ubuntu-latest
