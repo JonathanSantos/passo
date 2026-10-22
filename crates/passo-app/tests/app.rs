@@ -1423,3 +1423,20 @@ fn a_lock_that_takes_too_long_denies_and_says_so() {
     );
     assert!(reply.is_none());
 }
+
+#[test]
+fn the_snapshot_hides_secrets_in_every_field() {
+    let p = Project::new("secrets-request");
+    p.app()
+        .start("trocar TOKEN=0123456789abcdef no deploy", Some(passo_core::Size::Pp))
+        .unwrap();
+    let snapshot = serde_json::to_string(&p.app().snapshot(None).unwrap()).unwrap();
+    assert!(!snapshot.contains("0123456789abcdef"), "{snapshot}");
+    assert!(snapshot.contains("TOKEN=«oculto»"));
+    let run = p.app().active().unwrap();
+    assert!(
+        !run.id.contains("0123456789abcdef") && run.id.starts_with("trocar-token-"),
+        "{}",
+        run.id
+    );
+}

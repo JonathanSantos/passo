@@ -88,8 +88,9 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// The same snapshot with `redact` applied to every event text and data, every check output, the feedback and
-    /// the rendered texts.
+    /// The same snapshot with `redact` applied to every text an agent or a shell wrote: the whole run (request,
+    /// brief, plan, steps, criteria, questions, changes, gate, notes, checks), every event, the runs list, the map
+    /// nodes and the rendered texts.
     pub fn redacted(mut self, redact: impl Fn(&str) -> String) -> Snapshot {
         fn scrub(value: &mut serde_json::Value, redact: &dyn Fn(&str) -> String) {
             match value {
@@ -103,14 +104,18 @@ impl Snapshot {
             event.text = redact(&event.text);
             scrub(&mut event.data, &redact);
         }
-        if let Some(run) = &mut self.run {
-            for check in &mut run.checks {
-                check.command = redact(&check.command);
-                check.output = redact(&check.output);
-            }
-            run.feedback = run.feedback.as_deref().map(&redact);
-            run.notes = run.notes.iter().map(|n| redact(n)).collect();
+        // Every string in the run, whatever field it sits in: a field added later is covered too.
+        if let Some(run) = self.run.take() {
+            let scrubbed = serde_json::to_value(&run).ok().and_then(|mut value| {
+                scrub(&mut value, &redact);
+                serde_json::from_value(value).ok()
+            });
+            self.run = Some(scrubbed.unwrap_or(run));
         }
+        for summary in &mut self.runs {
+            summary.request = redact(&summary.request);
+        }
+        self.map_nodes = self.map_nodes.iter().map(|n| redact(n)).collect();
         self.checks_step = self.checks_step.iter().map(|c| redact(c)).collect();
         self.checks_final = self.checks_final.iter().map(|c| redact(c)).collect();
         self.next_text = self.next_text.as_deref().map(&redact);

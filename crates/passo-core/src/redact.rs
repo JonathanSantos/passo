@@ -3,18 +3,21 @@
 //!
 //! - A key that ends in `token`, `secret`, `password`… followed by `=` or `:` gets its value hidden
 //!   (`TOKEN=abc`, `password: abc`, `"password": "abc"`, `Authorization: Bearer abc`). Followed by a space only as
-//!   an option (`--token abc`). A common word followed by a space is never a key: `token de sessão` stays.
-//! - Words with a known token prefix (`ghp_`, `sk-`, `AKIA…`, `AIza`, PEM blocks) are hidden whole.
+//!   an option (`--token abc`). A common word followed by a space is never a key: `token de sessão` stays. A short
+//!   number is never a secret (`session: 2`, `src/auth: 3 arquivos`); `pwd` and `passwd` count only as a whole key,
+//!   and the shell's `PWD` and `OLDPWD` never.
+//! - A few programs take a password in a short option: `mysql -p…`, `sshpass -p`, `psql -W`, `curl -u user:…`,
+//!   `openssl -pass`. Outside that table, `-x value` is not a key.
+//! - Words with a known token prefix (`ghp_`, `sk-`, `AKIA…`, `AIza`, PEM blocks) are hidden whole; `sk-` only with a
+//!   token's length after it (`sk-learn-extra` stays).
 //! - A `.env`-style line (`NAME_IN_CAPS=value`) with a value of 16 characters or more gets its value hidden.
 
 pub const HIDDEN: &str = "«oculto»";
 
-const KEYS: [&str; 16] = [
+const KEYS: [&str; 14] = [
     "token",
     "secret",
     "password",
-    "passwd",
-    "pwd",
     "api_key",
     "apikey",
     "api-key",
@@ -31,15 +34,19 @@ const KEYS: [&str; 16] = [
 /// Header-like keys whose value may be a scheme and a credential: `Authorization: Bearer abc`.
 const SCHEMES: [&str; 4] = ["bearer", "basic", "token", "digest"];
 
-const PREFIXES: [&str; 8] = [
-    "ghp_",
-    "gho_",
-    "github_pat_",
-    "sk-",
-    "sk_live_",
-    "sk_test_",
-    "AIza",
-    "glpat-",
+const PREFIXES: [&str; 5] = ["ghp_", "gho_", "github_pat_", "AIza", "glpat-"];
+/// Prefixes that are also common words in names (`sk-learn`): they need a token after them.
+const TOKEN_PREFIXES: [&str; 3] = ["sk-", "sk_live_", "sk_test_"];
+
+/// Programs that take a password in a short option: (program, option, the value is the part after `:`).
+const SHORT_OPTIONS: [(&str, &str, bool); 7] = [
+    ("mysql", "-p", false),
+    ("mariadb", "-p", false),
+    ("sshpass", "-p", false),
+    ("psql", "-W", false),
+    ("curl", "-u", true),
+    ("wget", "-u", true),
+    ("openssl", "-pass", false),
 ];
 
 pub fn redact(text: &str) -> String {
@@ -54,9 +61,21 @@ pub fn redact_with(text: &str, extra: &[String]) -> String {
 }
 
 fn is_key(word: &str, extra: &[String]) -> bool {
-    let word = word.trim_start_matches('-').to_lowercase();
+    let bare = word.trim_start_matches('-');
+    if bare == "PWD" || bare == "OLDPWD" {
+        return false;
+    }
+    let word = bare.to_lowercase();
     !word.is_empty()
-        && (KEYS.iter().any(|k| word.ends_with(k)) || extra.iter().any(|k| word.ends_with(&k.to_lowercase())))
+        && (word == "pwd"
+            || word == "passwd"
+            || KEYS.iter().any(|k| word.ends_with(k))
+            || extra.iter().any(|k| word.ends_with(&k.to_lowercase())))
+}
+
+/// A value worth hiding: 8 characters or more, or anything that is not a plain number (`2`, `3.5`).
+fn secret_value(chars: &[char]) -> bool {
+    chars.len() >= 8 || chars.iter().any(|c| !c.is_ascii_digit() && *c != '.')
 }
 
 fn hide_pem(text: &str) -> String {
@@ -170,13 +189,49 @@ fn redact_line(line: &str, extra: &[String]) -> String {
                 (v, e)
             }
         };
-        if value_end > value_start {
+        if value_end > value_start && secret_value(&chars[value_start..value_end]) {
             hide.push((value_start, value_end));
         }
     }
 
-    // --option value.
     let words = word_spans(&chars);
+    // A short option from the table, after its program: `mysql -phunter2`, `sshpass -p x`, `curl -u ana:x`.
+    let text = |(s, e): (usize, usize)| chars[s..e].iter().collect::<String>();
+    let mut program: Option<&str> = None;
+    for (i, &span) in words.iter().enumerate() {
+        let word = text(span);
+        let name = word.rsplit('/').next().unwrap_or(&word);
+        if let Some((p, _, _)) = SHORT_OPTIONS.iter().find(|(p, _, _)| *p == name) {
+            program = Some(p);
+            continue;
+        }
+        let Some(program) = program else { continue };
+        for (_, option, after_colon) in SHORT_OPTIONS.iter().filter(|(p, _, _)| *p == program) {
+            let (s, e) = if word == *option {
+                match words.get(i + 1) {
+                    Some(&next) => next,
+                    None => continue,
+                }
+            } else if word.len() > option.len() && word.starts_with(option) && option.len() == 2 {
+                (span.0 + option.chars().count(), span.1)
+            } else {
+                continue;
+            };
+            let s = if *after_colon {
+                match chars[s..e].iter().position(|c| *c == ':') {
+                    Some(at) => s + at + 1,
+                    None => continue,
+                }
+            } else {
+                s
+            };
+            if e > s {
+                hide.push((s, e));
+            }
+        }
+    }
+
+    // --option value.
     for pair in words.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         let option: String = chars[a.0..a.1].iter().collect();
@@ -192,7 +247,15 @@ fn redact_line(line: &str, extra: &[String]) -> String {
         c.is_whitespace() || matches!(c, '"' | '\'' | '=' | ':' | ',' | '(' | ')')
     }) {
         let word: String = chars[s..e].iter().collect();
+        let token_after = |p: &str| {
+            word.strip_prefix(p).is_some_and(|rest| {
+                rest.len() >= 20
+                    && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                    && rest.chars().any(|c| c.is_ascii_digit())
+            })
+        };
         let prefixed = PREFIXES.iter().any(|p| word.starts_with(p) && word.len() > p.len() + 6)
+            || TOKEN_PREFIXES.iter().any(|p| token_after(p))
             || is_slack(&word)
             || is_aws_key(&word);
         if prefixed {
@@ -292,7 +355,14 @@ mod tests {
             ("cli --api-key=xyz789", "cli --api-key=«oculto»"),
             ("usei ghp_0123456789abcdefghij no push", "usei «oculto» no push"),
             ("key AKIAABCDEFGHIJKLMNOP aqui", "key «oculto» aqui"),
-            ("STRIPE=sk_live_0123456789abcdef", "STRIPE=«oculto»"),
+            ("STRIPE=sk_live_0123456789abcdef0123", "STRIPE=«oculto»"),
+            ("mysql -u ana -phunter2 db", "mysql -u ana -p«oculto» db"),
+            ("mysql -p hunter2", "mysql -p «oculto»"),
+            ("sshpass -p hunter2 ssh x", "sshpass -p «oculto» ssh x"),
+            ("curl -u ana:hunter2 https://x", "curl -u ana:«oculto» https://x"),
+            ("openssl enc -pass pass:hunter2", "openssl enc -pass «oculto»"),
+            ("chave sk-proj-a1b2c3d4e5f6g7h8i9j0k1 aqui", "chave «oculto» aqui"),
+            ("passwd: hunter2", "passwd: «oculto»"),
             ("API_KEY=0123456789abcdef0123", "API_KEY=«oculto»"),
             ("DATABASE_URL=postgres://u:p@host:5432/db", "DATABASE_URL=«oculto»"),
             (
@@ -315,8 +385,26 @@ mod tests {
             "cargo test task::",
             "ok 12:30 started",
             "tests/x_test.rs:12 `prova_tal`; src/x.rs:42",
+            "session: 2",
+            "src/auth: 3 arquivos",
+            "PWD=/Users/x OLDPWD=/tmp",
+            "pip install sk-learn-extra",
+            "grep -p padrão arquivo",
         ] {
             assert_eq!(redact(text), text, "{text}");
+        }
+    }
+
+    #[test]
+    fn hiding_twice_changes_nothing() {
+        for text in [
+            "TOKEN=abc123",
+            "mysql -phunter2",
+            "curl -u ana:x",
+            "chave sk-proj-a1b2c3d4e5f6g7h8i9j0k1",
+        ] {
+            let once = redact(text);
+            assert_eq!(redact(&once), once, "{text}");
         }
     }
 

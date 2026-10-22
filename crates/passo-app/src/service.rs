@@ -1425,10 +1425,12 @@ pub fn make_id(request: &str, now: chrono::DateTime<chrono::Utc>) -> String {
     const STOP: [&str; 14] = [
         "a", "o", "as", "os", "de", "do", "da", "dos", "das", "e", "em", "um", "uma", "para",
     ];
-    let words: Vec<String> = request
+    // The id names the branch and every commit: a secret in the request stays out of it.
+    let hidden = passo_core::redact::HIDDEN.trim_matches(['«', '»']);
+    let words: Vec<String> = passo_core::redact::redact(request)
         .split(|c: char| !c.is_alphanumeric())
         .map(fold)
-        .filter(|w| w.len() > 1 && !STOP.contains(&w.as_str()))
+        .filter(|w| w.len() > 1 && !STOP.contains(&w.as_str()) && w != hidden)
         .take(3)
         .collect();
     let slug = if words.is_empty() {
