@@ -403,7 +403,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "passo-adapters"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "passo-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "passo-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -442,7 +442,7 @@ dependencies = [
 
 [[package]]
 name = "passo-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "globset",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "passo-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "passo-web"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "passo-app",
