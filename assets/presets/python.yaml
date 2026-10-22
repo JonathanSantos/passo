@@ -1,3 +1,7 @@
 checks:
   step: [python3 -m compileall -q .]
   final: [python3 -m pytest -q]
+  # Ligue em passo.yaml com `min_diff` (precisa de pytest-cov instalado).
+  coverage:
+    command: python3 -m pytest -q --cov --cov-report=lcov:{out}
+    min_diff: 0

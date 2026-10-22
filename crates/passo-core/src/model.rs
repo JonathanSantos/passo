@@ -360,6 +360,12 @@ pub struct Run {
     /// The dev accepted going past the size limit.
     #[serde(default)]
     pub limit_accepted: bool,
+    /// The final checks passed; Passo is measuring the diff coverage.
+    #[serde(default)]
+    pub awaiting_coverage: bool,
+    /// The diff coverage of the last verify, when configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<crate::coverage::DiffCoverage>,
     /// Billable tokens the run spent, as last measured.
     #[serde(default)]
     pub tokens: u64,
@@ -401,6 +407,8 @@ impl Run {
             checks: vec![],
             reviewing: false,
             limit_accepted: false,
+            awaiting_coverage: false,
+            coverage: None,
             tokens: 0,
             tokens_accepted: false,
             changes: vec![],

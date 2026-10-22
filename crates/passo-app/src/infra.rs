@@ -203,6 +203,17 @@ impl Git {
             .collect())
     }
 
+    /// Lines added or changed between `base` and the working tree, per file, as numbered in the working tree.
+    pub fn changed_lines(&self, base: &str) -> Result<passo_core::coverage::Lines> {
+        Ok(parse_diff_lines(&self.output(&[
+            "diff",
+            "-U0",
+            "--no-color",
+            "--no-ext-diff",
+            base,
+        ])?))
+    }
+
     /// `(path, added + removed)` for everything staged against the run's base.
     pub fn numstat(&self, base: &str) -> Result<Vec<(String, usize)>> {
         Ok(self
@@ -367,4 +378,41 @@ pub fn run_with_input(
         stderr: err.join().unwrap_or_default(),
         ms: started.elapsed().as_millis() as u64,
     })
+}
+
+/// Reads `git diff -U0`: the `+++ b/<file>` headers and the `@@ -a,b +c,d @@` hunks. Only the new side counts;
+/// deleted files and pure deletions add nothing.
+pub fn parse_diff_lines(diff: &str) -> passo_core::coverage::Lines {
+    let mut out = passo_core::coverage::Lines::new();
+    let mut file: Option<String> = None;
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ ") {
+            file = path.strip_prefix("b/").map(str::to_string);
+        } else if let (Some(file), Some(hunk)) = (&file, line.strip_prefix("@@ ")) {
+            // `-a,b +c,d @@ …`: the new side starts at c and runs d lines (d defaults to 1).
+            let Some(new) = hunk.split_whitespace().find(|p| p.starts_with('+')) else {
+                continue;
+            };
+            let mut parts = new[1..].split(',');
+            let start: u32 = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            let count: u32 = parts.next().and_then(|n| n.parse().ok()).unwrap_or(1);
+            if count > 0 {
+                out.entry(file.clone()).or_default().extend(start..start + count);
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod diff_tests {
+    use super::*;
+
+    #[test]
+    fn the_new_side_of_each_hunk_counts() {
+        let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -3,0 +4,2 @@ fn x\n+a\n+b\n@@ -10 +12 @@\n-x\n+y\n@@ -20,3 +21,0 @@\n-z\ndiff --git a/old.rs b/old.rs\n--- a/old.rs\n+++ /dev/null\n@@ -1,2 +0,0 @@\n";
+        let lines = parse_diff_lines(diff);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines["src/a.rs"].iter().copied().collect::<Vec<_>>(), vec![4, 5, 12]);
+    }
 }

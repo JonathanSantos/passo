@@ -224,13 +224,33 @@
     $("plan").innerHTML = `<div class="cols"><div><h2>Passos</h2><ul class="list">${steps}</ul></div><div><h2>Critérios de aceite</h2><ul class="list">${crit}</ul></div></div>`;
   }
 
+  /// The diff coverage and, per file, the changed lines no test ran.
+  function coverage(c) {
+    if (!c) return "";
+    if (!c.measured) return `<p class="small muted" style="margin-top:10px">Cobertura do diff não medida: ${esc(c.reason)}</p>`;
+    const files = c.uncovered.map(([file, lines]) => `<li><code>${esc(file)}</code> <span class="faint">${esc(spans(lines))}</span></li>`).join("");
+    return `<h2 style="margin-top:14px">Cobertura do diff · ${c.percent}%</h2><p class="small muted">${c.lines} linha(s) mudada(s) que contam${c.uncovered.length ? "; sem teste:" : ", todas executadas por algum teste."}</p>${files ? `<ul class="small">${files}</ul>` : ""}`;
+  }
+
+  /// `40-52, 60`.
+  function spans(lines) {
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+      let end = lines[i];
+      const start = end;
+      while (i + 1 < lines.length && lines[i + 1] === end + 1) end = lines[++i];
+      out.push(start === end ? String(start) : `${start}-${end}`);
+    }
+    return out.join(", ");
+  }
+
   function checks(s) {
     const run = s.run;
     if (!run || !run.checks.length) {
       const conf = [...s.checks_step.map((c) => "por passo · " + c), ...s.checks_final.map((c) => "final · " + c)];
       return ($("checks").innerHTML = conf.length ? `<h2>Checagens</h2><p class="small muted">${conf.map(esc).join("<br>")}</p>` : "");
     }
-    $("checks").innerHTML = `<h2>Últimas checagens</h2>${run.checks.map((c) => `<details class="check" ${c.ok ? "" : "open"}><summary><span class="${c.ok ? "ok" : "bad"}" style="color:var(--${c.ok ? "ok" : "fail"})">${c.ok ? "✓" : "✗"}</span><code>${esc(c.command)}</code><span class="faint small">${ms(c.ms)}</span></summary>${c.output ? `<pre>${esc(c.output)}</pre>` : ""}</details>`).join("")}`;
+    $("checks").innerHTML = `<h2>Últimas checagens</h2>${run.checks.map((c) => `<details class="check" ${c.ok ? "" : "open"}><summary><span class="${c.ok ? "ok" : "bad"}" style="color:var(--${c.ok ? "ok" : "fail"})">${c.ok ? "✓" : "✗"}</span><code>${esc(c.command)}</code><span class="faint small">${ms(c.ms)}</span></summary>${c.output ? `<pre>${esc(c.output)}</pre>` : ""}</details>`).join("")}${coverage(run.coverage)}`;
   }
 
   // ---------------------------------------------------------------------------------------------- metrics & activity

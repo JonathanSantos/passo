@@ -175,6 +175,8 @@ pub struct Checks {
     #[serde(rename = "final")]
     pub final_: Vec<String>,
     pub timeout_secs: u64,
+    /// Diff coverage at verify, after the final checks pass.
+    pub coverage: Coverage,
 }
 
 impl Default for Checks {
@@ -183,7 +185,26 @@ impl Default for Checks {
             step: vec![],
             final_: vec![],
             timeout_secs: 600,
+            coverage: Coverage::default(),
         }
+    }
+}
+
+/// How to measure which changed lines the tests run. `{out}` is the lcov file Passo reads; `{outdir}` a folder,
+/// read as `{outdir}/lcov.info`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Coverage {
+    pub command: String,
+    /// Percent of the changed lines some test must execute (0 = off).
+    pub min_diff: u32,
+    /// Below the minimum: a correction step (true) or a note and at most a medium proof (false).
+    pub required: bool,
+}
+
+impl Coverage {
+    pub fn on(&self) -> bool {
+        self.min_diff > 0 && !self.command.trim().is_empty()
     }
 }
 

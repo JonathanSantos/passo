@@ -1,3 +1,7 @@
 checks:
   step: [cargo check --all-targets --quiet]
   final: [cargo test --quiet]
+  # Ligue em passo.yaml com `min_diff` (precisa de cargo-llvm-cov instalado).
+  coverage:
+    command: cargo llvm-cov --lcov --output-path {out} --quiet
+    min_diff: 0

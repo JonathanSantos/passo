@@ -14,6 +14,12 @@ checks:
   # Na verificação (a suíte completa).
   final: []
   timeout_secs: 600
+  # Cobertura do diff: quantas linhas mudadas algum teste executa. {out} é o lcov que o Passo lê.
+  # Roda a suíte de novo, então a verificação demora cerca do dobro. min_diff 0 desliga.
+  # coverage:
+  #   command: cargo llvm-cov --lcov --output-path {out} --quiet
+  #   min_diff: 70        # % das linhas mudadas que algum teste executa
+  #   required: false     # true: abaixo do mínimo vira passo de correção
 
 git:
   # branch: um branch por run, um commit por passo. none: trabalha no lugar, sem commits.

@@ -3,3 +3,7 @@ checks:
     - npm run --silent --if-present typecheck
     - npm run --silent --if-present lint
   final: [npm test --silent]
+  # Ligue em passo.yaml com `min_diff` (usa c8 pelo npx).
+  coverage:
+    command: npx c8 --reporter=lcov --reports-dir {outdir} npm test --silent
+    min_diff: 0

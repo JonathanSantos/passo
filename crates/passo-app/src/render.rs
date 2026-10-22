@@ -292,6 +292,17 @@ fn context(view: &View) -> String {
                     let _ = writeln!(out, "- {} ✓", check.command);
                 }
             }
+            if let Some(coverage) = &run.coverage {
+                let min = view.config.checks.coverage.min_diff;
+                let _ = writeln!(out, "{} (mínimo {min}%)", coverage.summary());
+                if !coverage.uncovered.is_empty() {
+                    let _ = writeln!(
+                        out,
+                        "Linhas mudadas que nenhum teste executa: {}. Confira se algum critério depende delas.",
+                        coverage.uncovered_text()
+                    );
+                }
+            }
             if let Some(plan) = &run.plan
                 && !plan.notes.is_empty()
             {
@@ -432,6 +443,12 @@ pub fn gate(view: &View) -> String {
                     .map(|c| format!("{} {}", c.command, if c.ok { "✓" } else { "✗" }))
                     .collect();
                 let _ = writeln!(out, "Checagens: {}", checks.join(" · "));
+            }
+            if let Some(coverage) = &run.coverage {
+                let _ = writeln!(out, "{}", coverage.summary());
+                if !coverage.uncovered.is_empty() {
+                    let _ = writeln!(out, "  sem teste: {}", coverage.uncovered_text());
+                }
             }
             if let Some(branch) = run.workspace.as_ref().and_then(|w| w.branch.as_ref()) {
                 let what = match view.config.git.delivery {

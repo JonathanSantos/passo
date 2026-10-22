@@ -29,7 +29,7 @@ Modelos baratos erram menos quando alguém carrega a estrutura por eles. O Passo
 | **Planejar**  | planejador           | critérios de aceite e passos pequenos, cada um com o teste que o prova, o comando que o roda e os critérios que atende; critério sem passo é recusado. **Você aprova** |
 | **Construir** | construtor           | um passo por vez; o Passo roda as checagens e faz um commit por passo |
 | **Verificar** | o Passo e o revisor  | a suíte completa, depois cada critério conferido com evidência     |
-| **Entregar**  | o Passo              | o resumo com o grau de prova. **Você aceita**, e o branch é juntado |
+| **Entregar**  | o Passo              | o resumo com o grau de prova (`forte`: checagens finais, revisão de todos os critérios e, se ligada, a cobertura do diff). **Você aceita**, e o branch é juntado |
 
 ### O tamanho decide quem faz cada etapa
 

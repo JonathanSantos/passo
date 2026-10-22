@@ -88,6 +88,24 @@ Cada componente novo ganha uma story com os estados vazio, carregando e erro.
 - `mode: replace` substitui as instruções embutidas em vez de acrescentar.
 - `skip`, `enabled` e afins dão erro: etapas não se desligam. Para um tamanho não usar agente numa etapa, use os tamanhos.
 
+## Cobertura do diff
+
+Prova `forte` diz que a suíte passou e o revisor confirmou os critérios. Com a cobertura ligada, diz também que os testes executam as linhas que o run mudou:
+
+```yaml
+checks:
+  coverage:
+    command: cargo llvm-cov --lcov --output-path {out} --quiet   # {out}: o lcov que o Passo lê
+    min_diff: 70        # % das linhas mudadas que algum teste executa; 0 desliga
+    required: false     # true: abaixo do mínimo vira passo de correção
+```
+
+`{out}` é o arquivo lcov que o Passo lê; `{outdir}` é uma pasta, lida como `{outdir}/lcov.info`. Os presets trazem o comando (rust: `cargo llvm-cov`; node: `npx c8`; python: `pytest --cov`) com `min_diff: 0`; para ligar, ponha só `min_diff` no seu `passo.yaml`. Go fica sem, por enquanto.
+
+Depois que as checagens finais passam, o Passo roda o comando, lê o lcov e compara com as linhas que o run mudou (`git diff <base> -U0`; arquivos de teste e `.md` ficam de fora, como no limite do diff, e só contam as linhas que o lcov considera executáveis). O resultado vai para o log (`Cobertura do diff: 83% (12 linha(s) sem teste em 2 arquivo(s))`), para o revisor, para o gate de aceitar e para o painel. Abaixo do mínimo, com `required: false`, a prova fica no máximo em `média` e as linhas sem teste viram nota para o revisor; com `required: true`, viram um passo de correção, que conta como volta da verificação. Sem git, ou se o comando falhar, a cobertura fica como não medida e a prova não passa de `média`.
+
+O comando de cobertura roda a suíte de novo: a verificação demora cerca do dobro.
+
 ## Executores de teste
 
 O `rodar` de um passo (o comando que roda só o teste dele) é uma chamada simples a um executor de testes: sem `$(`, crase, `;`, `&&`, `||`, `|`, `>`, `<`, quebra de linha ou `\`, e começando por um programa permitido. Por padrão: `cargo`, `npm`, `pnpm`, `yarn`, `bun`, `node`, `pytest`, `python`, `go`, `make`, `just`, `mvn`, `gradle`, `dotnet`, `mix`, `bundle` e `rspec`, mais o programa de cada item de `checks.step` e `checks.final`. Para acrescentar:

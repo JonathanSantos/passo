@@ -11,6 +11,7 @@ use thiserror::Error;
 
 use crate::answers::{Answer, Decision};
 use crate::config::{Config, Mode, Profile};
+use crate::coverage::DiffCoverage;
 use crate::lock::{self, Activity, ToolKind, ToolUse, Verdict};
 use crate::model::*;
 use crate::spec::{Brief, Invalid, Plan, Question, Review};
@@ -22,6 +23,8 @@ pub enum Effect {
     Commit { step: String, message: String },
     /// Run the final checks and answer with `Command::FinalChecks`.
     RunFinalChecks,
+    /// Run the coverage command and answer with `Command::Coverage`.
+    MeasureCoverage,
     /// Write the delivery report.
     WriteReport,
     /// The dev accepted: merge or keep the branch.
@@ -84,6 +87,8 @@ pub enum Command {
     Stop(String),
     /// Passo measured the run's billable tokens (the total so far).
     Spent(u64),
+    /// Passo measured the diff coverage after the final checks.
+    Coverage(DiffCoverage),
 }
 
 impl Command {
@@ -94,7 +99,7 @@ impl Command {
             | Command::StepDone(_)
             | Command::SubmitReview(_)
             | Command::Ask(_) => Actor::Agent,
-            Command::FinalChecks(_) | Command::Spent(_) => Actor::Passo,
+            Command::FinalChecks(_) | Command::Spent(_) | Command::Coverage(_) => Actor::Passo,
             _ => Actor::Dev,
         }
     }
@@ -166,6 +171,7 @@ impl<'a> Engine<'a> {
             Command::Change(text) => self.change(&mut next, text, &mut out, now)?,
             Command::Resize(size) => self.resize(&mut next, size, &mut out, now)?,
             Command::Spent(tokens) => self.spent(&mut next, tokens, &mut out, now),
+            Command::Coverage(coverage) => self.coverage(&mut next, coverage, &mut out, now)?,
             Command::Stop(reason) => {
                 next.status = Status::Aborted;
                 next.gate = None;
@@ -188,6 +194,7 @@ impl<'a> Engine<'a> {
     fn announce(&self, run: &mut Run, stage: Stage, out: &mut Outcome) -> Mode {
         run.stage = stage;
         run.reviewing = false;
+        run.awaiting_coverage = false;
         let mode = self.profile(run).mode(stage);
         let who = match (stage, mode) {
             (Stage::Entregar, _) => "o Passo prepara a entrega",
@@ -659,12 +666,84 @@ impl<'a> Engine<'a> {
             return Ok(());
         }
         run.checks = results;
+        run.coverage = None;
+        if self.config.checks.coverage.on() {
+            run.awaiting_coverage = true;
+            out.effects.push(Effect::MeasureCoverage);
+            return Ok(());
+        }
+        self.after_checks(run, out, now);
+        Ok(())
+    }
+
+    /// The final checks (and the coverage, when configured) passed: to the reviewer, or straight to delivery.
+    fn after_checks(&self, run: &mut Run, out: &mut Outcome, now: DateTime<Utc>) {
         if self.profile(run).verificar == Mode::Agente {
             run.reviewing = true;
             out.event(run, "review.requested", Actor::Passo, "Revisão dos critérios".into());
         } else {
             self.enter(run, Stage::Entregar, out, now);
         }
+    }
+
+    fn coverage(
+        &self,
+        run: &mut Run,
+        coverage: DiffCoverage,
+        out: &mut Outcome,
+        now: DateTime<Utc>,
+    ) -> Result<(), FlowError> {
+        if run.stage != Stage::Verificar || !run.awaiting_coverage {
+            return Err(FlowError::Wrong(
+                "a cobertura só é medida em Verificar, depois das checagens finais".into(),
+            ));
+        }
+        run.awaiting_coverage = false;
+        let rule = &self.config.checks.coverage;
+        if !coverage.measured {
+            out.event(run, "coverage.skipped", Actor::Passo, coverage.summary());
+            run.coverage = Some(coverage);
+            self.after_checks(run, out, now);
+            return Ok(());
+        }
+        out.event(run, "coverage.measured", Actor::Passo, coverage.summary());
+        let low = coverage.percent < rule.min_diff;
+        let uncovered = coverage.uncovered_text();
+        let first = coverage
+            .uncovered
+            .first()
+            .map(|(file, lines)| format!("{file} {}", crate::coverage::ranges(lines)));
+        let others = coverage.uncovered.len().saturating_sub(1);
+        run.coverage = Some(coverage);
+        if !low {
+            self.after_checks(run, out, now);
+            return Ok(());
+        }
+        out.event(
+            run,
+            "coverage.low",
+            Actor::Passo,
+            format!("Cobertura do diff abaixo de {}%", rule.min_diff),
+        );
+        if rule.required
+            && let Some(first) = first
+        {
+            let title = if others == 0 {
+                format!("Cobrir com teste: {first}")
+            } else {
+                format!("Cobrir com teste: {first} e mais {others} arquivo(s)")
+            };
+            let detail = format!(
+                "Nenhum teste executa estas linhas mudadas (mínimo {}% do diff): {uncovered}",
+                rule.min_diff
+            );
+            self.back_to_build(run, vec![Fix::plain(title, detail)], out, now);
+            return Ok(());
+        }
+        if !uncovered.is_empty() {
+            run.notes.push(format!("Linhas sem teste: {uncovered}"));
+        }
+        self.after_checks(run, out, now);
         Ok(())
     }
 
@@ -1133,8 +1212,16 @@ impl<'a> Engine<'a> {
         // `run.checks` holds the final checks here, wherever they were configured (passo.yaml or the stage file).
         let final_ok = !run.checks.is_empty() && run.checks.iter().all(|c| c.ok);
         let reviewed = !run.criteria.is_empty() && run.criteria.iter().all(|c| c.ok == Some(true));
+        let rule = &self.config.checks.coverage;
+        // Configured, the coverage is the third thing a strong proof needs.
+        let covered = !rule.on()
+            || run
+                .coverage
+                .as_ref()
+                .is_some_and(|c| c.measured && c.percent >= rule.min_diff);
         match (final_ok, reviewed) {
-            (true, true) => Proof::Forte,
+            (true, true) if covered => Proof::Forte,
+            (true, true) => Proof::Media,
             (true, false) | (false, true) => Proof::Media,
             _ if !self.config.checks.step.is_empty() => Proof::Fraca,
             _ => Proof::Nenhuma,

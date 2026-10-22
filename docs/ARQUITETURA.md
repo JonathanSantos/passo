@@ -104,4 +104,5 @@ Os comandos do dev têm uma terceira camada, que não depende de hook: `Platform
 - **Plano validado contra o tamanho**: um modelo barato que planeja 12 passos para um pedido `p` recebe a recusa com o motivo.
 - **O plano mais forte, a construção mais leve**: por padrão, `planejador` e `revisor` pedem o nível `forte` e `refinador` e `construtor` o `leve`. Um bom plano é o que faz um modelo barato acertar.
 - **Aprovação pelo chat**: o hook de prompt do usuário só dispara com o que o dev digita, então `ok 1b` no chat conta como decisão do dev, sem abrir outro terminal.
+- **O grau de prova diz o que foi verificado**: `forte` exige as checagens finais passando, a revisão confirmando todos os critérios e, quando `checks.coverage` está ligado, a cobertura do diff no mínimo configurado; falta uma das três, `média`; só as checagens por passo, `fraca`; nada, `nenhuma`. A cobertura entra como fato (`Command::Coverage`) depois das checagens finais: o app roda o comando, lê o lcov e compara com `git diff -U0`; o motor decide.
 - **Polling em vez de SSE** no painel: mais simples, funciona atrás de qualquer proxy e 1,5 s basta para acompanhar.

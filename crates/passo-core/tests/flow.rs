@@ -729,3 +729,121 @@ fn no_token_limit_never_asks() {
     sim.apply(Command::Spent(5_000_000)).unwrap();
     assert!(sim.run.gate.is_none());
 }
+
+fn coverage_config(required: bool) -> Config {
+    let mut config = config();
+    config.checks.coverage = passo_core::config::Coverage {
+        command: "cov {out}".into(),
+        min_diff: 70,
+        required,
+    };
+    config
+}
+
+/// Builds both steps; the final checks pass and Passo waits for the coverage.
+fn to_coverage(sim: &mut Sim) {
+    to_build(sim);
+    sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
+        .unwrap();
+    sim.apply(Command::StepDone(facts(&["src/f.rs", "tests/b.rs"], true)))
+        .unwrap();
+    assert_eq!(sim.run.stage, Stage::Verificar);
+    assert!(sim.run.awaiting_coverage && !sim.run.reviewing);
+    assert!(sim.effects.contains(&Effect::MeasureCoverage));
+}
+
+fn measured(percent: u32, uncovered: &[(&str, &[u32])]) -> passo_core::coverage::DiffCoverage {
+    passo_core::coverage::DiffCoverage {
+        measured: true,
+        percent,
+        lines: 20,
+        uncovered: uncovered.iter().map(|(f, l)| (f.to_string(), l.to_vec())).collect(),
+        reason: String::new(),
+    }
+}
+
+fn review_all_ok(sim: &mut Sim) {
+    let review = parse_review(
+        r#"{"criterios":[{"id":"C1","ok":true,"evidencia":"a"},{"id":"C2","ok":true,"evidencia":"b"}]}"#,
+        &["C1".into(), "C2".into()],
+        &[],
+    )
+    .unwrap();
+    sim.apply(Command::SubmitReview(review)).unwrap();
+}
+
+#[test]
+fn coverage_is_measured_only_after_the_final_checks() {
+    let config = coverage_config(false);
+    let mut sim = Sim::start(&config, Size::M);
+    assert!(matches!(
+        sim.apply(Command::Coverage(measured(90, &[]))),
+        Err(FlowError::Wrong(_))
+    ));
+    to_coverage(&mut sim);
+    sim.apply(Command::Coverage(measured(90, &[]))).unwrap();
+    assert!(sim.run.reviewing && !sim.run.awaiting_coverage);
+    assert!(
+        sim.events
+            .iter()
+            .any(|e| e.kind == "coverage.measured" && e.text == "Cobertura do diff: 90%")
+    );
+    assert!(matches!(
+        sim.apply(Command::Coverage(measured(90, &[]))),
+        Err(FlowError::Wrong(_))
+    ));
+    review_all_ok(&mut sim);
+    assert_eq!(sim.run.proof, Some(Proof::Forte));
+}
+
+#[test]
+fn low_coverage_caps_the_proof_and_leaves_a_note() {
+    let config = coverage_config(false);
+    let mut sim = Sim::start(&config, Size::M);
+    to_coverage(&mut sim);
+    let lines: Vec<u32> = (40..=52).collect();
+    sim.apply(Command::Coverage(measured(
+        50,
+        &[("src/x.rs", &lines), ("src/y.rs", &[10])],
+    )))
+    .unwrap();
+    assert!(sim.events.iter().any(|e| e.kind == "coverage.low"));
+    assert!(
+        sim.run
+            .notes
+            .contains(&"Linhas sem teste: src/x.rs 40-52; src/y.rs 10".to_string())
+    );
+    assert!(sim.run.reviewing);
+    review_all_ok(&mut sim);
+    assert_eq!(sim.run.proof, Some(Proof::Media));
+}
+
+#[test]
+fn required_coverage_becomes_a_correction_step() {
+    let config = coverage_config(true);
+    let mut sim = Sim::start(&config, Size::M);
+    to_coverage(&mut sim);
+    let lines: Vec<u32> = (40..=52).collect();
+    sim.apply(Command::Coverage(measured(50, &[("src/x.rs", &lines)])))
+        .unwrap();
+    assert_eq!(sim.run.stage, Stage::Construir);
+    assert_eq!(sim.run.rounds, 1);
+    assert_eq!(
+        sim.run.current_step().unwrap().title,
+        "Cobrir com teste: src/x.rs 40-52"
+    );
+}
+
+#[test]
+fn unmeasured_coverage_is_skipped_and_the_proof_stays_medium() {
+    let config = coverage_config(true);
+    let mut sim = Sim::start(&config, Size::M);
+    to_coverage(&mut sim);
+    sim.apply(Command::Coverage(passo_core::coverage::DiffCoverage::skipped(
+        "sem git",
+    )))
+    .unwrap();
+    assert!(sim.events.iter().any(|e| e.kind == "coverage.skipped"));
+    review_all_ok(&mut sim);
+    assert_eq!(sim.run.proof, Some(Proof::Media));
+}

@@ -9,6 +9,7 @@
 
 pub mod answers;
 pub mod config;
+pub mod coverage;
 pub mod flow;
 pub mod learn;
 pub mod lock;

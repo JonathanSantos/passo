@@ -1332,3 +1332,42 @@ fn the_series_reads_every_run_even_the_archived_ones() {
     let json: serde_json::Value = serde_json::to_value(&agg).unwrap();
     assert!(json["runs"].is_array() && json["by_size"][0]["runs"] == 3, "{json}");
 }
+
+#[test]
+fn diff_coverage_reaches_the_reviewer() {
+    let p = Project::new("coverage");
+    p.write(
+        ".passo/passo.yaml",
+        "checks:\n  step: [test -f src/lib.txt]\n  final: [\"true\"]\n  coverage:\n    command: printf 'SF:src/lib.txt\\nDA:1,1\\nDA:2,1\\nDA:3,0\\nDA:4,0\\nend_of_record\\n' > {out}\n    min_diff: 70\n",
+    );
+    p.git(&["add", "-A"]);
+    p.git(&["commit", "-q", "-m", "cobertura"]);
+    p.app().start("Mudar as tarefas", Some(passo_core::Size::P)).unwrap();
+    let brief = p.draft(
+        "brief-cov",
+        r#"{"entendimento":"x","escopo":["a"],"arquivos":["src/lib.txt"]}"#,
+    );
+    p.done(&brief);
+    let plan = p.draft(
+        "plan-cov",
+        r#"{"titulo":"T","criterios":["mudou"],"passos":[{"titulo":"S","arquivos":["src/lib.txt"],"criterios":["C1"]}]}"#,
+    );
+    p.done(&plan);
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    p.write("src/lib.txt", "um\ndois\ntrês\nquatro\n");
+    let next = p.done("mudou");
+
+    let run = p.app().active().unwrap();
+    let coverage = run.coverage.as_ref().expect("coverage measured");
+    assert_eq!((coverage.percent, coverage.lines), (50, 4));
+    assert!(run.reviewing);
+    let log = std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("events.jsonl")).unwrap();
+    assert!(
+        log.contains("Cobertura do diff: 50% (2 linha(s) sem teste em 1 arquivo(s))"),
+        "{log}"
+    );
+    assert!(
+        next.contains("Linhas mudadas que nenhum teste executa: src/lib.txt 3-4"),
+        "{next}"
+    );
+}

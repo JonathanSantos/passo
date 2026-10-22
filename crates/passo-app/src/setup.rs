@@ -55,6 +55,13 @@ pub fn init(root: &Path, platforms: &[String], bin: &str) -> Result<InitReport> 
             text = text
                 .replace("  step: []\n", "  # step: []\n")
                 .replace("  final: []\n", "  # final: []\n");
+            // A preset with a coverage command only needs the minimum to turn it on.
+            if passo_store::assets::preset(preset).is_some_and(|p| p.contains("coverage:")) {
+                text = text.replace(
+                    "  #   command: cargo llvm-cov --lcov --output-path {out} --quiet\n",
+                    &format!("  #   (o comando vem do preset:{preset})\n"),
+                );
+            }
         }
         std::fs::write(layout.config(), text)?;
         written.push(PathBuf::from(".passo/passo.yaml"));

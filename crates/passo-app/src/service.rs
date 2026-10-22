@@ -755,6 +755,16 @@ impl App {
                     events.extend(more.events);
                     queue.extend(more.effects);
                 }
+                Effect::MeasureCoverage => {
+                    let coverage = self.measure_coverage(&run);
+                    let (next, more) = self
+                        .engine()
+                        .apply(&run, Command::Coverage(coverage), self.clock.now())
+                        .map_err(|e| anyhow!("{e}"))?;
+                    run = next;
+                    events.extend(more.events);
+                    queue.extend(more.effects);
+                }
                 Effect::WriteReport => report = true,
                 Effect::Deliver => events.extend(self.deliver(&run)),
             }
@@ -782,6 +792,56 @@ impl App {
                 check
             })
             .collect()
+    }
+
+    /// Runs the coverage command and compares its lcov with the lines the run changed (tests and `.md` left out,
+    /// as in the diff limit). Without git there is no base to compare with.
+    fn measure_coverage(&self, run: &Run) -> passo_core::coverage::DiffCoverage {
+        use passo_core::coverage::{self, DiffCoverage};
+        let base = run.workspace.as_ref().and_then(|w| w.base.clone());
+        let Some(base) = base.filter(|_| self.uses_git(run)) else {
+            return DiffCoverage::skipped("sem git não há base para comparar");
+        };
+        let dir = std::env::temp_dir().join(format!("passo-cobertura-{}-{}", run.id, std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        if std::fs::create_dir_all(&dir).is_err() {
+            return DiffCoverage::skipped("não consegui criar a pasta temporária");
+        }
+        let out = dir.join("lcov.info");
+        let command = self
+            .config
+            .checks
+            .coverage
+            .command
+            .replace("{outdir}", &dir.display().to_string())
+            .replace("{out}", &out.display().to_string());
+        let timeout = Duration::from_secs(self.config.checks.timeout_secs.max(1));
+        let ran = self.runner.run(&command, &self.layout.root, timeout);
+        let text = std::fs::read_to_string(&out).unwrap_or_default();
+        std::fs::remove_dir_all(&dir).ok();
+        if !ran.ok {
+            let tail = ran.output.lines().last().unwrap_or("").to_string();
+            return DiffCoverage::skipped(self.redact(&format!("o comando de cobertura falhou: {tail}")));
+        }
+        if text.trim().is_empty() {
+            return DiffCoverage::skipped("o comando de cobertura não escreveu o lcov");
+        }
+        let root = std::fs::canonicalize(&self.layout.root).unwrap_or(self.layout.root.clone());
+        let mut lcov = coverage::parse_lcov(&text, &root.display().to_string());
+        if root != self.layout.root {
+            let other = coverage::parse_lcov(&text, &self.layout.root.display().to_string());
+            if other.instrumented.len() > lcov.instrumented.len() {
+                lcov = other;
+            }
+        }
+        let Ok(mut changed) = self.git().changed_lines(&base) else {
+            return DiffCoverage::skipped("não consegui ler o diff do run");
+        };
+        let tests = globs(&self.config.tests.patterns).ok();
+        changed.retain(|path, _| {
+            !path.ends_with(".md") && !path.starts_with(".passo/") && !tests.as_ref().is_some_and(|t| t.is_match(path))
+        });
+        coverage::diff_coverage(&changed, &lcov.executed, &lcov.instrumented)
     }
 
     fn deliver(&self, run: &Run) -> Vec<EventDraft> {
