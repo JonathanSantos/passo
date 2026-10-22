@@ -1,5 +1,7 @@
 # Spec: a trava mais firme, o log sem segredos, e quatro coisas novas
 
+> **Estado: executada em 2026-10-21**, nos commits `mel-01` a `mel-07` da main. Não rode de novo; o texto fica como registro das decisões.
+
 Sete itens. Os três primeiros fecham buracos que a revisão apontou: a trava lê comandos de shell por `split`, o log leva segredos para o relatório, e um hook que falha desliga a trava em silêncio. Os quatro seguintes acrescentam: `passo learn`, orçamento de tokens, `passo stats --all` e cobertura do diff como prova.
 
 Regras de execução iguais às de `docs/SPEC.md`: um item por vez, na ordem; um commit por item com prefixo `mel-NN`; `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings` e `cargo test --workspace` antes de cada commit; `CLAUDE.md` vale (inglês no código, português para quem usa, core puro, plataformas só em `passo-adapters`). Esta spec parte do código depois de `docs/SPEC-MAPA.md` e `docs/SPEC-REVISAO.md`. Se uma delas ainda não rodou, pare e pergunte: os itens 01 e 02 mexem em `lock.rs` e `service.rs`, que as duas também tocam.
