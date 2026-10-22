@@ -177,6 +177,10 @@ fn decide(
     let Some(layout) = candidates.into_iter().flatten().find_map(|dir| Layout::find(&dir)) else {
         return Ok(HookReply::Allow);
     };
+    // `passo doctor`'s probe: judge and answer, write nothing.
+    if std::env::var("PASSO_PROBE").is_ok_and(|v| v == "1") {
+        return probe(event, &input, layout);
+    }
     let mut app = App::at(layout)?;
     if let Some(reporter) = reporter {
         app = app.with_reporter(reporter);
@@ -347,6 +351,26 @@ fn decide(
         }
         HookEvent::SubagentStop => Ok(HookReply::Allow),
     }
+}
+
+/// The lock's answer to `passo doctor`, without touching the run: no event, no budget, no transcript, no chat.
+fn probe(event: HookEvent, input: &passo_adapters::HookInput, layout: Layout) -> anyhow::Result<HookReply> {
+    if event != HookEvent::PreToolUse {
+        return Ok(HookReply::Allow);
+    }
+    let Some(tool) = &input.tool else {
+        return Ok(HookReply::Allow);
+    };
+    let app = App::at(layout)?;
+    let run = app.store.active();
+    let mapping = run.is_none() && app.mapping();
+    let learning = run.is_none() && !mapping && app.learning();
+    let activity = lock::Activity::of(run.as_ref(), mapping, learning);
+    let root = std::fs::canonicalize(&app.layout.root).unwrap_or(app.layout.root.clone());
+    Ok(match lock::judge(tool, &root, activity) {
+        Verdict::Allow => HookReply::Allow,
+        Verdict::Deny(reason) => HookReply::Deny(reason),
+    })
 }
 
 /// Counts the call against the step's action budget. Past the limit the agent is told, never stopped: once at the

@@ -10,6 +10,7 @@ rust-version.workspace = true
 passo-core.workspace = true
 passo-adapters.workspace = true
 passo-app.workspace = true
+passo-store.workspace = true
 passo-web.workspace = true
 clap.workspace = true
 anyhow.workspace = true

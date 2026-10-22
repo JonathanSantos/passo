@@ -60,3 +60,92 @@ fn doctor_proves_the_hook_answers() {
     );
     std::fs::remove_dir_all(root).ok();
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    let out = Command::new("git").args(args).current_dir(dir).output().unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn project(name: &str) -> (std::path::PathBuf, String) {
+    let root = std::env::temp_dir().join(format!("passo-cli-{name}-{}", std::process::id()));
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let bin_dir = Path::new(env!("CARGO_BIN_EXE_passo"))
+        .parent()
+        .unwrap()
+        .display()
+        .to_string();
+    let path = format!("{bin_dir}:/usr/bin:/bin");
+    assert!(passo(&root, &path, &["init", "--agent", "claude"]).status.success());
+    (root, path)
+}
+
+#[test]
+fn a_broken_config_does_not_stop_the_hook_check() {
+    let (root, path) = project("doctor-config");
+    std::fs::write(root.join(".passo/passo.yaml"), "checks: [isso não é um mapa\n").unwrap();
+    let out = text(&passo(&root, &path, &["doctor"]));
+    assert!(
+        out.contains("Hook (Claude Code): ✗ o hook respondeu \"permitir\""),
+        "{out}"
+    );
+    assert!(out.contains("✗ configuração:"), "{out}");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn the_probe_leaves_no_trace_in_the_run() {
+    let (root, path) = project("doctor-probe");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/a.txt"), "a\n").unwrap();
+    git(&root, &["init", "-q", "-b", "main"]);
+    git(&root, &["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+    );
+    let start = passo(&root, &path, &["start", "trocar o texto", "--size", "pp"]);
+    assert!(start.status.success(), "{}", text(&start));
+    let events = || {
+        let runs = root.join(".passo/runs");
+        let run = std::fs::read_dir(&runs).unwrap().next().unwrap().unwrap().path();
+        std::fs::read_to_string(run.join("events.jsonl"))
+            .unwrap()
+            .lines()
+            .count()
+    };
+    let before = events();
+    let out = text(&passo(&root, &path, &["doctor"]));
+    assert!(out.contains("Hook (Claude Code): ✓"), "{out}");
+    assert_eq!(events(), before, "the probe wrote to the run's log");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn a_changed_matcher_is_not_called_missing() {
+    let (root, path) = project("doctor-matcher");
+    let settings = root.join(".claude/settings.json");
+    let text_before = std::fs::read_to_string(&settings).unwrap();
+    std::fs::write(
+        &settings,
+        text_before.replace("Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep|Bash", "Bash"),
+    )
+    .unwrap();
+    let out = text(&passo(&root, &path, &["doctor"]));
+    assert!(out.contains("matcher diferente do esperado (achei \"Bash\""), "{out}");
+    std::fs::remove_dir_all(root).ok();
+}

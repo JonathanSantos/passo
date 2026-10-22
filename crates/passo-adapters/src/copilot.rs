@@ -70,6 +70,17 @@ impl Platform for Copilot {
         root.join(".github/skills/passo").exists()
     }
 
+    fn probe(&self, root: &Path, event: HookEvent) -> Value {
+        match event {
+            HookEvent::UserPrompt => json!({ "cwd": root, "prompt": "status?" }),
+            _ => json!({ "cwd": root, "toolName": "runInTerminal", "toolArgs": { "command": "passo ok" } }),
+        }
+    }
+
+    fn is_deny(&self, reply: &Value) -> bool {
+        reply["permissionDecision"] == "deny" || reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+    }
+
     fn default_model(&self, tier: &str) -> Option<&'static str> {
         match tier {
             "leve" => Some("Claude Haiku 5.5"),

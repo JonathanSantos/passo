@@ -554,12 +554,45 @@ fn stats_all(since: Option<String>, json: bool) -> Result<String> {
     Ok(passo_app::render::series(&agg))
 }
 
+/// Two halves: what needs only the folder (platforms, hooks, binary, hook errors) always runs; what needs the
+/// configuration runs after, and a broken `passo.yaml` is reported instead of stopping the hook check.
 fn doctor() -> Result<String> {
-    let app = app()?;
-    let mut out = format!(
-        "Projeto: {}\n\nConfiguração (da mais fraca para a mais forte):\n",
-        app.layout.root.display()
-    );
+    let layout = passo_store::Layout::find(&cwd())
+        .ok_or_else(|| anyhow!("este projeto ainda não usa o Passo. Rode `passo init` na raiz do projeto."))?;
+    let mut out = format!("Projeto: {}\n", layout.root.display());
+    let platforms: Vec<String> = passo_adapters::registry()
+        .iter()
+        .filter(|p| p.installed(&layout.root))
+        .map(|p| p.label().to_string())
+        .collect();
+    out.push_str(&format!(
+        "Plataformas: {}\n",
+        if platforms.is_empty() {
+            "nenhuma (passo init --agent claude)".into()
+        } else {
+            platforms.join(" · ")
+        }
+    ));
+    for line in passo_app::doctor::check_hooks(&layout) {
+        out.push_str(&format!("{line}\n"));
+    }
+    if let Some(errors) = passo_app::doctor::hook_errors(&layout) {
+        out.push_str(&format!("{errors}\n"));
+    }
+    if let Some(platform) = agent_platform() {
+        out.push_str(&format!(
+            "Ambiente de agente: sim ({}). passo ok/no/change/size/stop são recusados aqui; PASSO_DEV=1 libera.\n",
+            platform.label()
+        ));
+    }
+    let app = match App::open(&layout.root) {
+        Ok(app) => app,
+        Err(e) => {
+            out.push_str(&format!("\n✗ configuração: {e:#}\n"));
+            return Ok(out);
+        }
+    };
+    out.push_str("\nConfiguração (da mais fraca para a mais forte):\n");
     for layer in &app.layers {
         out.push_str(&format!("  · {layer}\n"));
     }
@@ -628,32 +661,14 @@ fn doctor() -> Result<String> {
             custom.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
         ));
     }
-    if let Some(platform) = agent_platform() {
-        out.push_str(&format!(
-            "\nAmbiente de agente: sim ({}). passo ok/no/change/size/stop são recusados aqui; PASSO_DEV=1 libera.\n",
-            platform.label()
-        ));
-    }
-    let platforms: Vec<String> = app.platforms().iter().map(|p| p.label().to_string()).collect();
     out.push_str(&format!(
-        "\nPlataformas: {}\n",
-        if platforms.is_empty() {
-            "nenhuma (passo init --agent claude)".into()
-        } else {
-            platforms.join(" · ")
-        }
-    ));
-    out.push_str(&format!(
-        "Contexto do projeto: {}\n",
+        "\nContexto do projeto: {}\n",
         if app.catalog.context.is_some() {
             ".passo/context.md ✓"
         } else {
             "vazio (preencha .passo/context.md)"
         }
     ));
-    for line in passo_app::doctor::check_hooks(&app) {
-        out.push_str(&format!("{line}\n"));
-    }
     out.push_str(&format!("Mapa do projeto: {}\n", app.map_summary()));
     for warning in app.attached_warnings() {
         out.push_str(&format!("  {}\n", warning.trim_start_matches("Aviso: ")));

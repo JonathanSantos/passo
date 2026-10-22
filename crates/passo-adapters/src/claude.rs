@@ -81,6 +81,34 @@ impl Platform for Claude {
         root.join(".claude/skills/passo").exists()
     }
 
+    fn probe(&self, root: &Path, event: HookEvent) -> Value {
+        match event {
+            HookEvent::UserPrompt => json!({ "cwd": root, "hook_event_name": "UserPromptSubmit", "prompt": "status?" }),
+            _ => json!({
+                "cwd": root, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                "tool_input": { "command": "passo ok" },
+            }),
+        }
+    }
+
+    fn is_deny(&self, reply: &Value) -> bool {
+        reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+    }
+
+    fn hook_matcher(&self, root: &Path, event: HookEvent) -> Option<(String, String)> {
+        let settings = files::read_json(&root.join(".claude/settings.json"));
+        let entries = settings.get("hooks")?.get(event_name(event))?.as_array()?;
+        let marker = format!(" hook {} --platform claude", event.id());
+        let entry = entries.iter().find(|e| e.to_string().contains(&marker))?;
+        let expected = match event {
+            HookEvent::PreToolUse => GUARDED_TOOLS,
+            HookEvent::SessionStart => "startup|resume|clear|compact",
+            _ => return None,
+        };
+        let found = entry.get("matcher").and_then(Value::as_str).unwrap_or("");
+        (found != expected).then(|| (found.to_string(), expected.to_string()))
+    }
+
     fn default_model(&self, tier: &str) -> Option<&'static str> {
         match tier {
             "leve" => Some("haiku"),

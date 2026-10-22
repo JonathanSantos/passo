@@ -129,6 +129,15 @@ pub trait Platform: Send + Sync {
     fn parse_hook(&self, event: HookEvent, raw: &Value) -> HookInput;
     /// Writes a reply in the platform's dialect; `None` prints nothing.
     fn render(&self, event: HookEvent, reply: &HookReply) -> Option<Value>;
+    /// A payload for `passo doctor` to send the installed hook: a tool call running `passo ok` (`PreToolUse`), or an
+    /// ordinary prompt (`UserPrompt`).
+    fn probe(&self, root: &Path, event: HookEvent) -> Value;
+    /// Whether a hook's reply denies the call.
+    fn is_deny(&self, reply: &Value) -> bool;
+    /// For a hook installed with a matcher other than the one `passo init` writes: (found, expected).
+    fn hook_matcher(&self, _root: &Path, _event: HookEvent) -> Option<(String, String)> {
+        None
+    }
     /// The files that hold token usage for the transcripts its hooks reported (subagents may keep their own).
     fn usage_files(&self, transcripts: &[PathBuf]) -> Vec<PathBuf> {
         transcripts.to_vec()

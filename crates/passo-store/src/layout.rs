@@ -59,7 +59,6 @@ impl Layout {
     pub fn map_log(&self) -> PathBuf {
         self.project_map().join("log.jsonl")
     }
-    /// Hook failures, newest last (out of git, at most 200 lines).
     /// `passo learn` in progress (live state, out of git).
     pub fn learn_task(&self) -> PathBuf {
         self.passo().join("learn").join(".task.json")
@@ -68,6 +67,7 @@ impl Layout {
     pub fn learn_seen(&self) -> PathBuf {
         self.passo().join("learn").join("seen.json")
     }
+    /// Hook failures, newest last (out of git, at most 200 lines).
     pub fn hook_errors(&self) -> PathBuf {
         self.passo().join("hook-errors.log")
     }
