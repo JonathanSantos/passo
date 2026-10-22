@@ -40,6 +40,8 @@ pub struct Profile {
     pub max_tool_calls: u32,
     /// Lines of the project map each stage may read (0 = no map in that stage).
     pub map_lines: MapLines,
+    /// Billable tokens (input + output + cache writes) per run before the dev decides (0 = no limit).
+    pub max_tokens: u64,
 }
 
 /// How many lines of the project map each agent stage reads. Delivering reads none.
@@ -107,6 +109,7 @@ impl Profile {
                 escalate_after: 0,
                 max_tool_calls: 30,
                 map_lines: MapLines::OFF,
+                max_tokens: 60_000,
             },
             Size::P => Profile {
                 refinar: Mode::Agente,
@@ -123,6 +126,7 @@ impl Profile {
                 escalate_after: 1,
                 max_tool_calls: 60,
                 map_lines: MapLines::DEFAULT,
+                max_tokens: 150_000,
             },
             Size::M => Profile {
                 refinar: Mode::Agente,
@@ -139,6 +143,7 @@ impl Profile {
                 escalate_after: 1,
                 max_tool_calls: 80,
                 map_lines: MapLines::DEFAULT,
+                max_tokens: 400_000,
             },
             Size::G => Profile {
                 refinar: Mode::Agente,
@@ -155,6 +160,7 @@ impl Profile {
                 escalate_after: 1,
                 max_tool_calls: 120,
                 map_lines: MapLines::DEFAULT,
+                max_tokens: 1_000_000,
             },
         }
     }

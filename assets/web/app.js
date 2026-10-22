@@ -101,7 +101,7 @@
 
   function gate(run) {
     const g = run.gate;
-    const head = `<div class="turn">Sua vez · ${esc({ aprovar: "aprovar o plano", aceitar: "aceitar a entrega", pergunta: "responder", travado: "destravar", limite: "limite do tamanho" }[g.kind])}</div>`;
+    const head = `<div class="turn">Sua vez · ${esc({ aprovar: "aprovar o plano", aceitar: "aceitar a entrega", pergunta: "responder", travado: "destravar", limite: "limite do tamanho", tokens: "limite de tokens" }[g.kind])}</div>`;
     const reject = (label) => `<div class="reject" id="reject"><textarea id="reason" placeholder="${esc(label)}"></textarea><div class="actions"><button id="send-no">Enviar</button></div></div>`;
     if (g.kind === "aprovar") {
       const b = run.brief || {};
@@ -234,6 +234,16 @@
   }
 
   // ---------------------------------------------------------------------------------------------- metrics & activity
+  /// `Tokens: 120k de 400k` with a bar, against the size's limit.
+  function budget(s) {
+    const run = s.run;
+    if (!run || !run.tokens) return "";
+    if (!s.max_tokens) return `<div class="stat"><div class="v">${num(run.tokens)}</div><div class="l">tokens no run · sem teto</div></div>`;
+    const pct = Math.min(100, (100 * run.tokens) / s.max_tokens);
+    const over = run.tokens > s.max_tokens;
+    return `<div class="stat"><div class="v"${over ? ' style="color:var(--warn)"' : ""}>${num(run.tokens)} de ${num(s.max_tokens)}</div><div class="l">tokens do tamanho${run.tokens_accepted ? " · teto aceito pelo dev" : ""}</div><div class="track"><span class="fill" style="width:${pct}%${over ? ";background:var(--warn)" : ""}"></span></div></div>`;
+  }
+
   function metrics(s) {
     const m = s.metrics;
     if (!m) return ($("metrics").innerHTML = "");
@@ -250,6 +260,7 @@
       <div class="stat"><div class="v">${ms(m.total_ms)}</div><div class="l">tempo total</div></div>
       <div class="stat"><div class="v">${m.dev_turns}</div><div class="l">vez(es) do dev · ${ms(m.dev_wait_ms)} esperando</div></div>
       <div class="stat"><div class="v">${useTokens ? num(billable(m.tokens)) : "—"}</div><div class="l">tokens${useTokens ? " · " + num(m.tokens.cache_read) + " de cache" : " (sem transcrição)"}</div></div>
+      ${budget(s)}
       <div class="stat"><div class="v">${m.steps_failed}</div><div class="l">tentativas que falharam · ${m.invalid_outputs} entregas inválidas</div></div>
       <div class="stat"><div class="v">${m.tool_calls}</div><div class="l">ações do agente · ${m.lock_denied} negadas</div></div>
       <div class="stat"><div class="v">${m.changes}</div><div class="l">mudanças · plano v${m.plan_versions}</div></div>

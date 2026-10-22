@@ -166,13 +166,15 @@ impl Platform for Claude {
                 }
             })),
             HookReply::Block(reason) => Some(json!({ "decision": "block", "reason": reason })),
+            // Stop has no context to add: the agent is done; the dev reads the message.
+            HookReply::Context(text) if event == HookEvent::Stop => Some(json!({ "systemMessage": text })),
             HookReply::Context(text) => {
                 Some(json!({ "hookSpecificOutput": { "hookEventName": name, "additionalContext": text } }))
             }
         }
     }
 
-    fn usage(&self, transcripts: &[PathBuf]) -> Vec<Usage> {
+    fn usage_files(&self, transcripts: &[PathBuf]) -> Vec<PathBuf> {
         let mut files: BTreeSet<PathBuf> = transcripts.iter().cloned().collect();
         // Subagents keep their own transcripts next to the session's: <session>/subagents/*.jsonl.
         for transcript in transcripts {
@@ -186,13 +188,13 @@ impl Platform for Claude {
                 );
             }
         }
+        files.into_iter().collect()
+    }
+
+    fn usage_in(&self, file: &Path) -> Vec<Usage> {
         let mut messages = std::collections::BTreeMap::new();
-        for file in files {
-            read_usage(&file, &mut messages);
-        }
-        let mut out: Vec<Usage> = messages.into_values().collect();
-        out.sort_by_key(|u| u.t);
-        out
+        read_usage(file, &mut messages);
+        messages.into_values().collect()
     }
 
     fn delegation(&self, agent: &str) -> String {

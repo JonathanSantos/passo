@@ -8,7 +8,7 @@ use std::sync::Arc;
 use passo_adapters::{HookEvent, HookReply, Platform};
 use passo_core::answers::{ChatDecision, parse_chat};
 use passo_core::lock::{self, ToolUse, Verdict};
-use passo_core::{Actor, EventDraft, Run, Stage, Turn};
+use passo_core::{Actor, EventDraft, GateKind, Run, Stage, Turn};
 use passo_store::{Layout, Transcript};
 use serde_json::{Value, json};
 
@@ -248,6 +248,19 @@ fn decide(
                     HookReply::Allow
                 });
             }
+            // The turn ends: a good moment to measure. Past the token limit, the dev decides and the agent may stop.
+            let run = match run {
+                Some(run) if run.active() => Some(app.spend(run)?),
+                other => other,
+            };
+            if let Some(gate) = run
+                .as_ref()
+                .and_then(|r| r.gate.as_ref())
+                .filter(|g| g.kind == GateKind::Tokens)
+            {
+                return Ok(HookReply::Context(format!("Passo: {}", gate.detail)));
+            }
+            let activity = lock::Activity::of(run.as_ref(), mapping, learning);
             let (Some(run), Some(reason)) = (&run, lock::judge_stop(activity)) else {
                 return Ok(HookReply::Allow);
             };

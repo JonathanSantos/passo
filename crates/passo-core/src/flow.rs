@@ -82,6 +82,8 @@ pub enum Command {
     Change(String),
     Resize(Size),
     Stop(String),
+    /// Passo measured the run's billable tokens (the total so far).
+    Spent(u64),
 }
 
 impl Command {
@@ -92,7 +94,7 @@ impl Command {
             | Command::StepDone(_)
             | Command::SubmitReview(_)
             | Command::Ask(_) => Actor::Agent,
-            Command::FinalChecks(_) => Actor::Passo,
+            Command::FinalChecks(_) | Command::Spent(_) => Actor::Passo,
             _ => Actor::Dev,
         }
     }
@@ -163,6 +165,7 @@ impl<'a> Engine<'a> {
             Command::Reject(text) => self.reject(&mut next, text, &mut out, now)?,
             Command::Change(text) => self.change(&mut next, text, &mut out, now)?,
             Command::Resize(size) => self.resize(&mut next, size, &mut out, now)?,
+            Command::Spent(tokens) => self.spent(&mut next, tokens, &mut out, now),
             Command::Stop(reason) => {
                 next.status = Status::Aborted;
                 next.gate = None;
@@ -770,6 +773,27 @@ impl<'a> Engine<'a> {
 
     // -- dev decisions ---------------------------------------------------------------------------------------
 
+    /// Records the measured tokens; past the size's limit, and not accepted yet, the dev decides. Nothing else moves:
+    /// the gate may open right after a step closed, so its `ok` must not complete anything.
+    fn spent(&self, run: &mut Run, tokens: u64, out: &mut Outcome, now: DateTime<Utc>) {
+        run.tokens = tokens;
+        let max = self.profile(run).max_tokens;
+        if max == 0 || tokens <= max || run.tokens_accepted || run.gate.is_some() {
+            return;
+        }
+        let detail = tokens_detail(run, max);
+        out.event(run, "limit.tokens", Actor::Passo, detail.clone());
+        self.open_gate(
+            run,
+            GateKind::Tokens,
+            "Passou do teto de tokens".into(),
+            detail,
+            vec![],
+            out,
+            now,
+        );
+    }
+
     fn approve(
         &self,
         run: &mut Run,
@@ -841,6 +865,16 @@ impl<'a> Engine<'a> {
                 );
                 self.complete_step(run, out, now);
             }
+            GateKind::Tokens => {
+                run.tokens_accepted = true;
+                run.gate = None;
+                out.event(
+                    run,
+                    "limit.tokens.accepted",
+                    Actor::Dev,
+                    format!("Dev aceitou passar do teto de tokens ({})", tokens_label(run.tokens)),
+                );
+            }
             GateKind::Aceitar => {
                 run.gate = None;
                 run.status = Status::Done;
@@ -884,7 +918,7 @@ impl<'a> Engine<'a> {
                 };
                 return self.approve(run, decision, out, now);
             }
-            GateKind::Travado | GateKind::Limite => {
+            GateKind::Travado | GateKind::Limite | GateKind::Tokens => {
                 return Err(FlowError::Wrong(
                     "aqui não há o que recusar: use passo ok, passo size, passo change ou passo stop".into(),
                 ));
@@ -938,6 +972,23 @@ impl<'a> Engine<'a> {
             run.gate = None;
             run.limit_accepted = true;
             self.complete_step(run, out, now);
+        }
+        if run.gate.as_ref().map(|g| g.kind) == Some(GateKind::Tokens) {
+            let max = self.profile(run).max_tokens;
+            if max == 0 || run.tokens <= max {
+                run.gate = None;
+                out.event(
+                    run,
+                    "gate.closed",
+                    Actor::Dev,
+                    format!("O tamanho {} cabe os tokens gastos", size.id()),
+                );
+            } else {
+                let detail = tokens_detail(run, max);
+                if let Some(gate) = run.gate.as_mut() {
+                    gate.detail = detail;
+                }
+            }
         }
         Ok(())
     }
@@ -1206,6 +1257,22 @@ fn auto_plan(run: &Run) -> Plan {
         }],
         notes: String::new(),
     }
+}
+
+/// `Tokens: 412k de 400k (tamanho m). Siga assim (passo ok) ou suba o tamanho (passo size g).`
+fn tokens_detail(run: &Run, max: u64) -> String {
+    let way_out = match run.size {
+        Size::Pp => "suba o tamanho (passo size p)",
+        Size::P => "suba o tamanho (passo size m)",
+        Size::M => "suba o tamanho (passo size g)",
+        Size::G => "encerre (passo stop)",
+    };
+    format!(
+        "Tokens: {} de {} (tamanho {}). Siga assim (passo ok) ou {way_out}.",
+        tokens_label(run.tokens),
+        tokens_label(max),
+        run.size.id()
+    )
 }
 
 /// A stable fingerprint of a plan (FNV-1a over its JSON). The audit chain uses SHA-256; this only names versions.

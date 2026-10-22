@@ -284,7 +284,7 @@ impl App {
             return Ok(self.learn_text(&task));
         }
         match self.store.latest() {
-            Some(run) => Ok(self.next_text(&run)),
+            Some(run) => Ok(self.next_text(&self.spend(run)?)),
             None => Ok("Nenhum run ainda. Comece com: passo start \"pedido do dev\" --size m".into()),
         }
     }
@@ -469,6 +469,7 @@ impl App {
             stage => bail!("nada a entregar em {}; rode `passo next`", stage.label()),
         };
         let run = self.transition(&run, command, None)?;
+        let run = self.spend(run)?;
         Ok(self.next_text(&run))
     }
 
@@ -476,6 +477,7 @@ impl App {
         let run = self.active()?;
         let question = self.valid(&run, spec::question_from_cli(String::new(), question, options))?;
         let run = self.transition(&run, Command::Ask(question), None)?;
+        let run = self.spend(run)?;
         Ok(self.next_text(&run))
     }
 
@@ -591,6 +593,10 @@ impl App {
             out = format!("{warning}\n{out}");
         }
         let _ = std::fmt::Write::write_fmt(&mut out, format_args!("Pedido: {}\n", run.request));
+        if let Some(tokens) = render::tokens_line(&run, &self.config) {
+            out.push_str(&tokens);
+            out.push('\n');
+        }
         match run.turn() {
             Turn::Dev => {
                 out.push('\n');
@@ -1067,20 +1073,82 @@ impl App {
 
     // -- views -----------------------------------------------------------------------------------------------
 
+    /// Token usage from the run's transcripts, oldest first. Each file is read again only when it changed since
+    /// the last time (`runs/<id>/usage.json` keeps its length, its modification time and what it held).
     pub fn usage(&self, run: &Run) -> Vec<Usage> {
         let transcripts = self.store.transcripts(&run.id);
-        let mut out = vec![];
+        let path = self.layout.usage(&run.id);
+        let cached: Vec<UsageFile> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let mut files: Vec<UsageFile> = vec![];
         for platform in passo_adapters::registry() {
             let paths: Vec<PathBuf> = transcripts
                 .iter()
                 .filter(|t| t.platform == platform.id())
                 .map(|t| PathBuf::from(&t.path))
                 .collect();
-            if !paths.is_empty() {
-                out.extend(platform.usage(&paths));
+            if paths.is_empty() {
+                continue;
+            }
+            for file in platform.usage_files(&paths) {
+                let Ok(meta) = std::fs::metadata(&file) else { continue };
+                let len = meta.len();
+                let mtime = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+                let key = file.display().to_string();
+                let samples = match cached
+                    .iter()
+                    .find(|c| c.path == key && c.len == len && c.mtime == mtime)
+                {
+                    Some(hit) => hit.samples.clone(),
+                    None => platform.usage_in(&file),
+                };
+                files.push(UsageFile {
+                    path: key,
+                    len,
+                    mtime,
+                    samples,
+                });
             }
         }
+        if files != cached
+            && let Ok(text) = serde_json::to_string(&files)
+        {
+            passo_store::layout::write_atomic(&path, text.as_bytes()).ok();
+        }
+        let mut out: Vec<Usage> = files.into_iter().flat_map(|f| f.samples).collect();
+        out.sort_by_key(|u| u.t);
         out
+    }
+
+    /// Billable tokens (input + output + cache writes) the run spent since it began.
+    pub fn run_tokens(&self, run: &Run) -> u64 {
+        self.usage(run)
+            .iter()
+            .filter(|u| u.t >= run.created_at)
+            .map(|u| u.input + u.output + u.cache_write)
+            .sum()
+    }
+
+    /// Measures the active run's tokens and hands the total to the engine when it matters: it changed, or it is
+    /// past the limit with no gate open (a gate that was open when the limit passed has since closed).
+    pub fn spend(&self, run: Run) -> Result<Run> {
+        if !run.active() {
+            return Ok(run);
+        }
+        let tokens = self.run_tokens(&run);
+        let max = self.config.profile(run.size).max_tokens;
+        let pending = max > 0 && tokens > max && !run.tokens_accepted && run.gate.is_none();
+        if tokens == run.tokens && !pending {
+            return Ok(run);
+        }
+        self.transition(&run, Command::Spent(tokens), None)
     }
 
     pub fn metrics(&self, run: &Run) -> Result<metrics::Metrics> {
@@ -1157,6 +1225,7 @@ impl App {
             checks_final: self.config.checks.final_.clone(),
             map_nodes,
             hook_warning,
+            max_tokens: self.config.profile(size).max_tokens,
             learn: match passo_store::learn::load_task(&self.layout) {
                 Some(task) if task.delivered() => Some(self.learn_text(&task)),
                 Some(_) => Some("O agente está aprendendo com os runs (passo learn).".into()),
@@ -1310,4 +1379,13 @@ fn fold(word: &str) -> String {
         })
         .filter(|c| c.is_ascii_alphanumeric())
         .collect()
+}
+
+/// One transcript file as last read, for `App::usage`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct UsageFile {
+    path: String,
+    len: u64,
+    mtime: u64,
+    samples: Vec<Usage>,
 }

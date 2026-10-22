@@ -165,7 +165,7 @@ impl Platform for Copilot {
         }
     }
 
-    fn usage(&self, _transcripts: &[PathBuf]) -> Vec<Usage> {
+    fn usage_in(&self, _file: &Path) -> Vec<Usage> {
         // VS Code does not expose Copilot's token counts to hooks yet.
         vec![]
     }

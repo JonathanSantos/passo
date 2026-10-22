@@ -130,6 +130,7 @@ sizes:
 | `block_sensitive`             | tocar em `limits.sensitive` para o run                                    |
 | `max_rounds`                  | voltas da verificação antes de chamar o dev                               |
 | `max_tool_calls`              | ações do agente por passo (por etapa, fora de Construir) antes de o Passo avisar para entregar ou perguntar; o aviso não nega nada (0 = sem limite; padrões 30, 60, 80 e 120) |
+| `max_tokens`                  | tokens faturáveis do run (entrada + saída + escrita de cache) antes de o Passo parar e perguntar: `passo ok` segue até o fim, `passo size` sobe o teto (0 = sem limite; padrões 60k, 150k, 400k e 1M). Só vale onde a plataforma expõe as transcrições (hoje o Claude Code) |
 | `map_lines`                   | linhas do mapa do projeto que cada etapa lê: `{ refinar, planejar, construir, verificar }` (`0` desliga a etapa; padrão 0 em `pp` e 60, 120, 60 e 100 nos outros) |
 | `escalate_after`              | tentativas falhas de um passo antes de a próxima pedir o nível forte (0 = nunca; padrão 0 em `pp`, 1 nos outros). Cada agente de nível leve ganha um gêmeo `-forte` na instalação |
 

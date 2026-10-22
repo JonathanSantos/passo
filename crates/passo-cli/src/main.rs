@@ -464,6 +464,9 @@ fn stats(run: Option<String>, json: bool) -> Result<String> {
         return Ok(serde_json::to_string_pretty(&m)?);
     }
     let mut out = format!("{}\n\n", run.headline());
+    if let Some(tokens) = passo_app::render::tokens_line(&run, &app.config) {
+        out.push_str(&format!("{tokens}\n\n"));
+    }
     out.push_str(&format!(
         "Tempo total      {}\nVez do dev       {} vez(es), {} esperando\nPassos           {} feitos, {} tentativas que falharam\nVoltas           {} · plano v{} · {} mudança(s) no pedido\nAgente           {} ações · {} negadas pela trava · {} entregas inválidas\nEscaladas        {}\n",
         duration(m.total_ms),

@@ -20,6 +20,34 @@ pub struct View<'a> {
     pub map: Option<&'a passo_core::map::Selection<'a>>,
 }
 
+/// `Tokens: 120k de 400k ▕██▏░░░░░░▕` against the size's limit; `None` while nothing was measured.
+pub fn tokens_line(run: &Run, config: &Config) -> Option<String> {
+    if run.tokens == 0 {
+        return None;
+    }
+    let max = config.profile(run.size).max_tokens;
+    if max == 0 {
+        return Some(format!(
+            "Tokens: {} (sem teto)",
+            passo_core::model::tokens_label(run.tokens)
+        ));
+    }
+    const WIDTH: u64 = 10;
+    let filled = (run.tokens * WIDTH).div_ceil(max).min(WIDTH) as usize;
+    let accepted = if run.tokens_accepted {
+        " · teto aceito pelo dev"
+    } else {
+        ""
+    };
+    Some(format!(
+        "Tokens: {} de {} {}{}{accepted}",
+        passo_core::model::tokens_label(run.tokens),
+        passo_core::model::tokens_label(max),
+        "█".repeat(filled),
+        "░".repeat(WIDTH as usize - filled)
+    ))
+}
+
 /// `Refinar ✓ · Planejar ✓ · Construir ▸ · Verificar · Entregar`, with `(auto)` where the size skips the agent.
 pub fn rail(run: &Run, config: &Config) -> String {
     let profile = config.profile(run.size);
@@ -432,6 +460,12 @@ pub fn gate(view: &View) -> String {
             let _ = writeln!(out, "## {}\n{}", gate.title, gate.detail);
             out.push_str(
                 "\nResponda:\n  ok                 segue assim\n  passo size m       sobe o tamanho e segue\n",
+            );
+        }
+        GateKind::Tokens => {
+            let _ = writeln!(out, "## {}\n{}", gate.title, gate.detail);
+            out.push_str(
+                "\nResponda:\n  ok                 segue assim até o fim do run\n  passo size g       sobe o tamanho (o teto novo vale se couber)\n  passo stop         encerra\n",
             );
         }
     }

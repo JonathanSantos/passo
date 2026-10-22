@@ -1248,3 +1248,60 @@ fn learning_turns_repeated_rejections_into_a_convention() {
         "{next}"
     );
 }
+
+#[test]
+fn a_run_past_its_token_limit_stops_for_the_dev_and_the_transcript_is_read_once() {
+    let p = Project::new("tokens");
+    p.app().start("Algo grande", Some(passo_core::Size::M)).unwrap();
+    let run = p.app().active().unwrap();
+    let transcript = p.root.join("../passo-tokens-transcript.jsonl");
+    let at = (chrono::Utc::now() + chrono::Duration::seconds(1)).to_rfc3339();
+    let line = |input: &str| {
+        format!(
+            r#"{{"type":"assistant","timestamp":"{at}","message":{{"id":"m1","model":"x","usage":{{"input_tokens":{input},"output_tokens":100000}}}}}}"#
+        ) + "\n"
+    };
+    std::fs::write(&transcript, line("400000")).unwrap();
+    p.app()
+        .store
+        .add_transcript(
+            &run.id,
+            passo_store::Transcript {
+                platform: "claude".into(),
+                path: transcript.display().to_string(),
+            },
+        )
+        .unwrap();
+
+    let next = p.app().next().unwrap();
+    let run = p.app().active().unwrap();
+    assert_eq!(run.tokens, 500_000);
+    assert_eq!(run.gate.as_ref().unwrap().kind, GateKind::Tokens);
+    assert!(next.contains("Tokens: 500k de 400k (tamanho m)"), "{next}");
+    assert!(p.app().status_text().contains("Tokens: 500k de 400k"));
+    let stop = p.hook(HookEvent::Stop, serde_json::json!({ "cwd": p.root })).unwrap();
+    assert!(stop.contains("systemMessage") && stop.contains("Tokens:"), "{stop}");
+
+    // Same length, same time: the cache answers and the file is not read again.
+    let cache: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("usage.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(cache[0]["len"], std::fs::metadata(&transcript).unwrap().len());
+    let mtime = std::fs::metadata(&transcript).unwrap().modified().unwrap();
+    std::fs::write(&transcript, line("900000")).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&transcript)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    p.app().next().unwrap();
+    assert_eq!(p.app().active().unwrap().tokens, 500_000);
+
+    p.app().decide(DevAction::Approve(vec![]), Source::Cli).unwrap();
+    let run = p.app().active().unwrap();
+    assert!(run.tokens_accepted && run.gate.is_none());
+    assert_eq!(run.stage, Stage::Refinar);
+    std::fs::remove_file(&transcript).ok();
+}

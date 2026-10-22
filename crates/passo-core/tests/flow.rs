@@ -658,3 +658,74 @@ fn an_agent_already_strong_does_not_escalate() {
     assert!(!sim.events.iter().any(|e| e.kind == "step.escalated"));
     assert!(!sim.run.feedback.as_deref().unwrap().contains("nível forte"));
 }
+
+#[test]
+fn spending_below_the_limit_changes_nothing_and_above_it_asks_the_dev() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    sim.apply(Command::Spent(100_000)).unwrap();
+    assert_eq!(sim.run.tokens, 100_000);
+    assert!(sim.run.gate.is_none());
+    assert_eq!(sim.run.stage, Stage::Refinar);
+
+    sim.apply(Command::Spent(412_000)).unwrap();
+    assert_eq!(sim.gate(), GateKind::Tokens);
+    assert_eq!(
+        sim.run.gate.as_ref().unwrap().detail,
+        "Tokens: 412k de 400k (tamanho m). Siga assim (passo ok) ou suba o tamanho (passo size g)."
+    );
+    assert!(sim.events.iter().any(|e| e.kind == "limit.tokens"));
+    assert!(matches!(
+        sim.apply(Command::Reject("não".into())),
+        Err(FlowError::Wrong(text)) if text.contains("aqui não há o que recusar")
+    ));
+}
+
+#[test]
+fn the_token_gate_after_a_closed_step_completes_nothing() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    to_build(&mut sim);
+    sim.apply(Command::StepDone(facts(&["src/task.rs", "tests/a.rs"], true)))
+        .unwrap();
+    assert_eq!(sim.run.current_step().unwrap().id, "S2");
+    sim.effects.clear();
+    sim.apply(Command::Spent(500_000)).unwrap();
+    assert_eq!(sim.gate(), GateKind::Tokens);
+    sim.apply(Command::Approve(Decision::default())).unwrap();
+    assert!(sim.run.gate.is_none() && sim.run.tokens_accepted);
+    assert!(
+        !sim.effects.iter().any(|e| matches!(e, Effect::Commit { .. })),
+        "{:?}",
+        sim.effects
+    );
+    let step = sim.run.current_step().unwrap();
+    assert_eq!((step.id.as_str(), step.status), ("S2", StepStatus::Doing));
+
+    // Accepted: spending more does not ask again.
+    sim.apply(Command::Spent(900_000)).unwrap();
+    assert!(sim.run.gate.is_none());
+}
+
+#[test]
+fn a_bigger_size_closes_the_token_gate_when_it_fits() {
+    let config = config();
+    let mut sim = Sim::start(&config, Size::M);
+    sim.apply(Command::Spent(500_000)).unwrap();
+    assert_eq!(sim.gate(), GateKind::Tokens);
+    sim.apply(Command::Resize(Size::G)).unwrap();
+    assert!(sim.run.gate.is_none());
+    assert!(!sim.run.tokens_accepted);
+    sim.apply(Command::Spent(1_200_000)).unwrap();
+    assert_eq!(sim.gate(), GateKind::Tokens);
+    assert!(sim.run.gate.as_ref().unwrap().detail.ends_with("encerre (passo stop)."));
+}
+
+#[test]
+fn no_token_limit_never_asks() {
+    let mut config = config();
+    config.sizes.get_mut(&Size::M).unwrap().max_tokens = 0;
+    let mut sim = Sim::start(&config, Size::M);
+    sim.apply(Command::Spent(5_000_000)).unwrap();
+    assert!(sim.run.gate.is_none());
+}

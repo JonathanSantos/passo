@@ -143,6 +143,8 @@ pub enum GateKind {
     Travado,
     /// The diff went past what the size allows.
     Limite,
+    /// The run spent more tokens than the size allows.
+    Tokens,
 }
 
 impl GateKind {
@@ -153,6 +155,7 @@ impl GateKind {
             GateKind::Pergunta => "responder a pergunta",
             GateKind::Travado => "destravar",
             GateKind::Limite => "limite do tamanho",
+            GateKind::Tokens => "limite de tokens",
         }
     }
 }
@@ -357,6 +360,12 @@ pub struct Run {
     /// The dev accepted going past the size limit.
     #[serde(default)]
     pub limit_accepted: bool,
+    /// Billable tokens the run spent, as last measured.
+    #[serde(default)]
+    pub tokens: u64,
+    /// The dev accepted going past the size's token limit.
+    #[serde(default)]
+    pub tokens_accepted: bool,
     #[serde(default)]
     pub changes: Vec<Change>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -392,6 +401,8 @@ impl Run {
             checks: vec![],
             reviewing: false,
             limit_accepted: false,
+            tokens: 0,
+            tokens_accepted: false,
             changes: vec![],
             workspace: None,
             proof: None,
@@ -442,5 +453,14 @@ impl Run {
             Turn::None => "interrompido".to_string(),
         };
         format!("{} · {} · {}", self.id, place, turn)
+    }
+}
+
+/// `412k`, `1,2M`: how tokens read in the terminal and the panel.
+pub fn tokens_label(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1e6).replace('.', ",")
+    } else {
+        format!("{}k", (n + 500) / 1000)
     }
 }

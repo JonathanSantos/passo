@@ -129,8 +129,22 @@ pub trait Platform: Send + Sync {
     fn parse_hook(&self, event: HookEvent, raw: &Value) -> HookInput;
     /// Writes a reply in the platform's dialect; `None` prints nothing.
     fn render(&self, event: HookEvent, reply: &HookReply) -> Option<Value>;
-    /// Token usage from the transcripts its hooks reported. Platforms without transcripts return nothing.
-    fn usage(&self, transcripts: &[PathBuf]) -> Vec<Usage>;
+    /// The files that hold token usage for the transcripts its hooks reported (subagents may keep their own).
+    fn usage_files(&self, transcripts: &[PathBuf]) -> Vec<PathBuf> {
+        transcripts.to_vec()
+    }
+    /// Token usage in one of those files. Platforms without transcripts return nothing.
+    fn usage_in(&self, file: &Path) -> Vec<Usage>;
+    /// Token usage from the transcripts its hooks reported, oldest first.
+    fn usage(&self, transcripts: &[PathBuf]) -> Vec<Usage> {
+        let mut out: Vec<Usage> = self
+            .usage_files(transcripts)
+            .iter()
+            .flat_map(|f| self.usage_in(f))
+            .collect();
+        out.sort_by_key(|u| u.t);
+        out
+    }
     /// How the main agent hands a stage to a subagent on this platform.
     fn delegation(&self, agent: &str) -> String;
 }

@@ -104,6 +104,10 @@ impl Layout {
     pub fn stops(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("stops.json")
     }
+    /// What each transcript held the last time Passo read it, so a long one is not read again unchanged.
+    pub fn usage(&self, id: &str) -> PathBuf {
+        self.run_dir(id).join("usage.json")
+    }
     /// Tool calls counted per step, for the action budget.
     pub fn budget(&self, id: &str) -> PathBuf {
         self.run_dir(id).join("budget.json")

@@ -67,6 +67,9 @@ pub struct Snapshot {
     pub map_nodes: Vec<String>,
     /// Hooks failed since the run began.
     pub hook_warning: Option<String>,
+    /// The token limit of the run's size (0 = none).
+    #[serde(default)]
+    pub max_tokens: u64,
     /// `passo learn`: the proposals waiting on the dev, or the hint that there are lessons to look at.
     #[serde(default)]
     pub learn: Option<String>,
