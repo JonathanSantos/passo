@@ -1385,3 +1385,41 @@ fn diff_coverage_reaches_the_reviewer() {
         "{next}"
     );
 }
+
+#[test]
+fn a_lock_that_takes_too_long_denies_and_says_so() {
+    let p = Project::new("guard");
+    p.app().start("Algo", Some(passo_core::Size::P)).unwrap();
+    let payload = tool(&p.root, "Bash", serde_json::json!({"command": "ls"}));
+    let started = std::time::Instant::now();
+    let reply = hooks::handle_within(
+        "claude",
+        HookEvent::PreToolUse,
+        &payload.to_string(),
+        &p.root,
+        None,
+        std::time::Duration::from_millis(50),
+        std::time::Duration::from_millis(400),
+    )
+    .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_millis(350));
+    assert!(reply.contains("deny") && reply.contains(hooks::TOO_SLOW), "{reply}");
+    let errors = std::fs::read_to_string(p.root.join(".passo/hook-errors.log")).unwrap();
+    assert!(errors.contains("demorou demais"), "{errors}");
+    let run = p.app().active().unwrap();
+    let log = std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("events.jsonl")).unwrap();
+    assert!(log.contains("hook.failed"), "{log}");
+
+    // Without a run or a mapping there is nothing to guard: the same slow hook answers in its own time.
+    let idle = Project::new("guard-idle");
+    let reply = hooks::handle_within(
+        "claude",
+        HookEvent::PreToolUse,
+        &tool(&idle.root, "Bash", serde_json::json!({"command": "ls"})).to_string(),
+        &idle.root,
+        None,
+        std::time::Duration::from_millis(50),
+        std::time::Duration::from_millis(100),
+    );
+    assert!(reply.is_none());
+}

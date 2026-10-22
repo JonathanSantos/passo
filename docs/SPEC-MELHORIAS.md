@@ -10,6 +10,8 @@ Cada item termina com **Resultado esperado**: o que muda para quem usa, e o que 
 
 ---
 
+> Item 01 substituído por `docs/SPEC-REVISAO-2.md` item 01: a trava passou a procurar os pares em qualquer posição, sem seguir prefixos.
+
 ## 01 · A trava lê shell de verdade
 
 **Por quê.** `lock::dev_command_in` e `git_write_in` quebram o comando em espaços e `;&|`. Com aspas ou substituição, a comparação `== "passo"` nunca acontece: `sh -c 'passo stop'`, `echo $(passo ok)`, `` `git commit -m x` `` e `"passo" ok` passam. Redirecionamento também passa: `echo x > src/a.rs` numa etapa só de leitura só é pego depois, pela conferência do git, que não vê `passo ok` nem `cat .env`.

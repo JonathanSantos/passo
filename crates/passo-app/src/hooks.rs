@@ -1,9 +1,12 @@
 //! Hook handling, platform-free: the adapter reads the payload and writes the reply; this decides.
 //!
-//! A hook that fails would stall the agent, so every error becomes "say nothing" (`PASSO_DEBUG=1` prints it).
+//! A hook that fails would stall the agent, so every error becomes "say nothing" (`PASSO_DEBUG=1` prints it). The
+//! one exception is time: a tool call with a run or a mapping going that the lock has not judged in 8 s is denied,
+//! so no command, however it was written, can outrun the lock.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use passo_adapters::{HookEvent, HookReply, Platform};
 use passo_core::answers::{ChatDecision, parse_chat};
@@ -17,6 +20,11 @@ use crate::service::{App, DevAction, Reporter, Source};
 /// After this many blocks at the same spot the agent may stop: a hook must not trap it in a loop.
 const MAX_STOP_BLOCKS: u32 = 3;
 
+/// How long the lock may take on a tool call before the hook denies it by itself.
+pub const GUARD: Duration = Duration::from_secs(8);
+
+pub const TOO_SLOW: &str = "a trava demorou demais com este comando; escreva-o de forma mais simples";
+
 /// `reporter` writes the delivery report when a decision taken here (an approval typed in the chat) ends the run.
 pub fn handle(
     platform: &str,
@@ -25,9 +33,68 @@ pub fn handle(
     cwd: &Path,
     reporter: Option<Arc<dyn Reporter>>,
 ) -> Option<String> {
+    handle_within(platform, event, stdin, cwd, reporter, GUARD, Duration::ZERO)
+}
+
+/// `handle`, with the guard's limit and a delay before deciding (tests use both to show the guard works).
+pub fn handle_within(
+    platform: &str,
+    event: HookEvent,
+    stdin: &str,
+    cwd: &Path,
+    reporter: Option<Arc<dyn Reporter>>,
+    limit: Duration,
+    delay: Duration,
+) -> Option<String> {
+    let id = platform.to_string();
     let platform = passo_adapters::get(platform)?;
     let raw: Value = serde_json::from_str(stdin).unwrap_or(Value::Null);
-    match decide(platform.as_ref(), event, &raw, cwd, reporter) {
+    let layout = (event == HookEvent::PreToolUse)
+        .then(|| busy(platform.as_ref(), event, &raw, cwd))
+        .flatten();
+    let Some(layout) = layout else {
+        return answer(platform.as_ref(), event, &raw, cwd, reporter);
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let cwd_owned: PathBuf = cwd.to_path_buf();
+    let raw_owned = raw.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        let Some(platform) = passo_adapters::get(&id) else {
+            return;
+        };
+        tx.send(answer(platform.as_ref(), event, &raw_owned, &cwd_owned, reporter))
+            .ok();
+    });
+    match rx.recv_timeout(limit) {
+        Ok(reply) => reply,
+        Err(_) => {
+            record_failure(&layout, platform.id(), event, TOO_SLOW);
+            platform
+                .render(event, &HookReply::Deny(TOO_SLOW.into()))
+                .map(|v| v.to_string())
+        }
+    }
+}
+
+/// The project, when a run or a mapping is going there: only then is a tool call worth guarding.
+fn busy(platform: &dyn Platform, event: HookEvent, raw: &Value, cwd: &Path) -> Option<Layout> {
+    let input = platform.parse_hook(event, raw);
+    let candidates = [input.project_dir, input.cwd, Some(cwd.into())];
+    let layout = candidates.into_iter().flatten().find_map(|dir| Layout::find(&dir))?;
+    let active = passo_store::Store::new(layout.clone()).active().is_some();
+    (active || passo_store::map::load_task(&layout).is_some()).then_some(layout)
+}
+
+fn answer(
+    platform: &dyn Platform,
+    event: HookEvent,
+    raw: &Value,
+    cwd: &Path,
+    reporter: Option<Arc<dyn Reporter>>,
+) -> Option<String> {
+    let raw = raw.clone();
+    match decide(platform, event, &raw, cwd, reporter) {
         Ok(reply) => platform.render(event, &reply).map(|v| v.to_string()),
         Err(e) => {
             if std::env::var_os("PASSO_DEBUG").is_some() {

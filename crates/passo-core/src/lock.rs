@@ -2,9 +2,11 @@
 //!
 //! Rules, in order: dev decisions are never the agent's; with a run active, `.passo/` and secrets are off limits,
 //! git history is Passo's, and the project is writable only while building. Shell commands are read with
-//! [`crate::shell::lex`]: every program they run (substitutions and `sh -c` included) and every file they redirect
-//! to or name is judged. A command the lexer cannot read is refused when it mentions `passo` or `git`, and in
-//! read-only stages; while building it passes, and the git check after each step covers what it wrote.
+//! [`crate::shell::lex`], and the lock looks for pairs in **every** word of every command (`passo ok`, `git commit`),
+//! wherever they sit: after `sudo`, inside `{ … }`, after `then`. Every file a line redirects to or names is judged;
+//! a path with a variable or a wildcard that could reach `.env` or `.passo` is refused. A command the lexer cannot
+//! read is refused when it mentions `passo` or `git`, and in read-only stages; while building it passes, and the git
+//! check after each step covers what it wrote.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -31,10 +33,32 @@ pub struct ToolUse {
     pub cwd: Option<PathBuf>,
 }
 
-/// Why an unreadable command that names `passo` or `git` is refused.
-pub const UNREADABLE: &str = "não consigo ler este comando (aspas ou substituição no nome do programa); chame o passo e o git diretamente, sem variáveis";
-/// Why an unreadable command is refused in a read-only stage.
-pub const UNREADABLE_HERE: &str = "nesta etapa só rodam comandos que a trava consegue ler";
+/// Why a command the lexer cannot read is refused.
+pub fn unreadable(why: &str) -> String {
+    format!("não consigo ler este comando ({why}); escreva o comando de forma direta")
+}
+
+pub const WHY_DYNAMIC_PROGRAM: &str = "expansão no nome do programa";
+pub const NO_SUBCOMMAND: &str = "diga o subcomando do passo por extenso";
+pub const PROTECTED_PATTERN: &str = "curinga ou variável num caminho protegido; escreva o caminho por extenso";
+pub const DYNAMIC_TARGET: &str = "alvo do redirecionamento com variável; use um caminho fixo em mktemp -d";
+pub const SWAPPED_ENV: &str = "o Passo e o git rodam com o ambiente do projeto, sem PATH ou bibliotecas trocadas";
+
+/// Programs that run the command after them: a `passo` after one of these is in a program's place.
+const WRAPPERS: [&str; 9] = [
+    "sudo", "env", "xargs", "nice", "nohup", "time", "timeout", "command", "exec",
+];
+/// Variables that change which program or library runs.
+const SWAPS: [&str; 6] = [
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "PATH",
+    "BASH_ENV",
+];
+/// Git options whose value is the next word when it has no `=`.
+const GIT_VALUE_OPTIONS: [&str; 5] = ["-C", "-c", "--git-dir", "--work-tree", "--namespace"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Verdict {
@@ -46,7 +70,14 @@ pub enum Verdict {
 pub const DEV_COMMANDS: [&str; 5] = ["ok", "no", "change", "size", "stop"];
 
 /// Subcommands that move history or the branch: Passo's job during a run.
-const GIT_WRITES: [&str; 15] = [
+const GIT_WRITES: [&str; 22] = [
+    "update-ref",
+    "symbolic-ref",
+    "reflog",
+    "filter-branch",
+    "gc",
+    "prune",
+    "replace",
     "commit",
     "checkout",
     "switch",
@@ -72,33 +103,71 @@ pub fn dev_command_in(command: &str) -> Option<&'static str> {
     dev_command_in_script(&shell::lex(command))
 }
 
+fn basename(text: &str) -> &str {
+    text.rsplit('/').next().unwrap_or(text)
+}
+
+/// `passo <dev>` anywhere in any command: `sudo -u x passo ok`, `{ passo ok; }`, `find . -exec passo ok \;`.
 fn dev_command_in_script(script: &Script) -> Option<&'static str> {
     for cmd in &script.commands {
-        if cmd.program() != Some("passo") {
-            continue;
-        }
-        let Some(sub) = cmd.words.get(1).map(|w| w.text.as_str()) else {
-            continue;
-        };
-        if let Some(dev) = DEV_COMMANDS.iter().find(|d| **d == sub) {
-            return Some(dev);
-        }
-        let flags = || cmd.words[2..].iter().take_while(|w| w.text.starts_with('-'));
-        // `passo map` is the agent's; cancelling a mapping is the dev's.
-        if sub == "map" && flags().any(|w| w.text == "--cancel") {
-            return Some("map --cancel");
-        }
-        // `passo learn` is the agent's; applying or dropping what it proposed is the dev's.
-        if sub == "learn" {
-            if flags().any(|w| w.text == "--apply" || w.text.starts_with("--apply=")) {
-                return Some("learn --apply");
+        for (i, word) in cmd.words.iter().enumerate() {
+            if basename(&word.text) != "passo" {
+                continue;
             }
-            if flags().any(|w| w.text == "--cancel") {
-                return Some("learn --cancel");
+            if let Some(dev) = dev_after(&cmd.words[i + 1..]) {
+                return Some(dev);
             }
         }
     }
     None
+}
+
+/// The dev decision in the words after `passo`, if any.
+fn dev_after(words: &[shell::Word]) -> Option<&'static str> {
+    let sub = words.first().map(|w| w.text.as_str())?;
+    if let Some(dev) = DEV_COMMANDS.iter().find(|d| **d == sub) {
+        return Some(dev);
+    }
+    let flags = || words[1..].iter().take_while(|w| w.text.starts_with('-'));
+    // `passo map` is the agent's; cancelling a mapping is the dev's.
+    if sub == "map" && flags().any(|w| w.text == "--cancel") {
+        return Some("map --cancel");
+    }
+    // `passo learn` is the agent's; applying or dropping what it proposed is the dev's.
+    if sub == "learn" {
+        if flags().any(|w| w.text == "--apply" || w.text.starts_with("--apply=")) {
+            return Some("learn --apply");
+        }
+        if flags().any(|w| w.text == "--cancel") {
+            return Some("learn --cancel");
+        }
+    }
+    None
+}
+
+/// `passo` in a program's place with no subcommand, or one only known when it runs: `passo $s`, `passo o${x}k`.
+fn passo_without_subcommand(script: &Script) -> bool {
+    script.commands.iter().any(|cmd| {
+        let wrapped = cmd.words.first().is_some_and(|w| WRAPPERS.contains(&basename(&w.text)));
+        cmd.words.iter().enumerate().any(|(i, word)| {
+            (i == 0 || wrapped)
+                && basename(&word.text) == "passo"
+                && cmd.words.get(i + 1).is_none_or(|next| next.dynamic)
+        })
+    })
+}
+
+/// `LD_PRELOAD=./x.so passo ok`, `env PATH=/tmp git push`: a swapped environment for `passo` or `git`.
+fn swapped_env(script: &Script) -> bool {
+    script.commands.iter().any(|cmd| {
+        let runs_ours = cmd.words.iter().any(|w| matches!(basename(&w.text), "passo" | "git"));
+        let named = cmd.assignments.iter().map(|(name, _)| name.as_str()).chain(
+            cmd.words
+                .iter()
+                .filter_map(|w| w.text.split_once('=').map(|(name, _)| name)),
+        );
+        runs_ours && named.into_iter().any(|name| SWAPS.contains(&name))
+    })
 }
 
 /// What the project is busy with, as the lock sees it.
@@ -127,24 +196,85 @@ impl<'a> Activity<'a> {
 pub const MAPPING_READ_ONLY: &str = "o mapeamento é só leitura: o mapa é entregue com passo done";
 pub const LEARNING_READ_ONLY: &str = "aprender com os runs é só leitura: as propostas são entregues com passo done";
 
+/// `git <write>` anywhere in any command, past git's own options (`git --no-pager -C x commit`).
 fn git_write_in(script: &Script) -> Option<&'static str> {
-    for cmd in script.commands.iter().filter(|c| c.program() == Some("git")) {
+    for cmd in &script.commands {
         let words: Vec<&str> = cmd.words.iter().map(|w| w.text.as_str()).collect();
-        // Skip `-C dir` and `-c key=value` options before the subcommand.
-        let mut j = 1;
-        while j < words.len() && (words[j] == "-C" || words[j] == "-c") {
-            j += 2;
-        }
-        if let Some(sub) = words.get(j)
-            && let Some(found) = GIT_WRITES.iter().chain(GIT_FILE_OPS.iter()).find(|g| *g == sub)
-        {
-            return Some(found);
-        }
-        if words.get(j) == Some(&"branch") && words.get(j + 1).is_some_and(|w| w.starts_with('-')) {
-            return Some("branch");
+        for at in (0..words.len()).filter(|&i| basename(words[i]) == "git") {
+            let mut j = at + 1;
+            while j < words.len() && words[j].starts_with('-') {
+                j += if GIT_VALUE_OPTIONS.contains(&words[j]) { 2 } else { 1 };
+            }
+            if let Some(sub) = words.get(j)
+                && let Some(found) = GIT_WRITES.iter().chain(GIT_FILE_OPS.iter()).find(|g| *g == sub)
+            {
+                return Some(found);
+            }
+            if words.get(j) == Some(&"branch") && words.get(j + 1).is_some_and(|w| w.starts_with('-')) {
+                return Some("branch");
+            }
         }
     }
     None
+}
+
+fn wildcard(text: &str) -> bool {
+    text.contains(['*', '?', '['])
+}
+
+/// A path whose value is only known when it runs (a variable, a substitution, a wildcard) that could still reach
+/// `.env` or `.passo`: the literal part after the last variable names one, or a wildcard on a dotted name could
+/// match one (`.en?`, `.e*`, `.pass?`, `.*`). A plain `*` never matches a leading dot.
+fn reaches_protected(word: &shell::Word) -> bool {
+    if !word.dynamic {
+        return false;
+    }
+    let tail = word.text.rsplit('$').next().unwrap_or(&word.text);
+    let literal_hit = tail.split('/').any(|part| part == ".passo")
+        || tail.rsplit('/').next().is_some_and(|name| is_secret(Path::new(name)));
+    let pattern_hit = word.text.split('/').any(|part| {
+        part.starts_with('.') && wildcard(part) && [".env", ".env.local", ".passo"].iter().any(|n| glob(part, n))
+    });
+    literal_hit || pattern_hit
+}
+
+/// `*`, `?` and `[…]` against a name, the way a shell expands one path component.
+fn glob(pattern: &str, name: &str) -> bool {
+    fn go(p: &[char], n: &[char]) -> bool {
+        match p.first() {
+            None => n.is_empty(),
+            Some('*') => (0..=n.len()).any(|k| go(&p[1..], &n[k..])),
+            Some('?') => !n.is_empty() && go(&p[1..], &n[1..]),
+            Some('[') => match p.iter().position(|c| *c == ']') {
+                Some(end) if !n.is_empty() => go(&p[end + 1..], &n[1..]),
+                _ => false,
+            },
+            Some(c) => n.first() == Some(c) && go(&p[1..], &n[1..]),
+        }
+    }
+    let p: Vec<char> = pattern.chars().collect();
+    let n: Vec<char> = name.chars().collect();
+    go(&p, &n)
+}
+
+/// A redirect target with a variable is safe when the variable part comes from `mktemp` (always outside the
+/// project): `> "$(mktemp)"`, or `f=$(mktemp) && cat > "$f"`, or `$TMPDIR/x`.
+fn temp_target(target: &shell::Word, script: &Script) -> bool {
+    let from_mktemp = |subs: &[String]| {
+        subs.first()
+            .is_some_and(|s| basename(s.split_whitespace().next().unwrap_or("")) == "mktemp")
+    };
+    if from_mktemp(&target.subs) {
+        return true;
+    }
+    target.vars.first().is_some_and(|var| {
+        var == "TMPDIR"
+            || script
+                .commands
+                .iter()
+                .flat_map(|c| c.assignments.iter())
+                .any(|(name, value)| name == var && from_mktemp(&value.subs))
+    })
 }
 
 /// `base` joined with `path` and `.`/`..` resolved, without touching the disk.
@@ -257,17 +387,38 @@ pub fn judge_with(tool: &ToolUse, root: &Path, read_only: &[PathBuf], activity: 
         tool.paths.clone()
     };
     if let (Some(script), Some(command)) = (&script, &tool.command) {
-        let mentions = |name: &str| crate::map::contains_word(command, name);
-        let blind = !script.readable
-            || script
-                .commands
-                .iter()
-                .any(|c| c.words.first().is_some_and(|w| w.dynamic));
-        if blind && (mentions("passo") || mentions("git")) {
-            return Verdict::Deny(UNREADABLE.into());
+        // The raw text: heredoc bodies and every stage of a pipe count (`echo 'passo ok' | sh`).
+        let mentions = crate::map::contains_word(command, "passo") || crate::map::contains_word(command, "git");
+        if !script.readable && (mentions || read_only_stage) {
+            return Verdict::Deny(unreadable(script.why.unwrap_or(shell::WHY_QUOTES)));
         }
-        if !script.readable && read_only_stage {
-            return Verdict::Deny(UNREADABLE_HERE.into());
+        let dynamic_program = script
+            .commands
+            .iter()
+            .any(|c| c.words.first().is_some_and(|w| w.dynamic));
+        if dynamic_program && (mentions || read_only_stage) {
+            return Verdict::Deny(unreadable(WHY_DYNAMIC_PROGRAM));
+        }
+        if passo_without_subcommand(script) {
+            return Verdict::Deny(NO_SUBCOMMAND.into());
+        }
+        if swapped_env(script) {
+            return Verdict::Deny(SWAPPED_ENV.into());
+        }
+        let named = script
+            .commands
+            .iter()
+            .flat_map(|c| c.words.iter().skip(1).chain(c.redirects.iter().map(|r| &r.target)));
+        if named.into_iter().any(reaches_protected) {
+            return Verdict::Deny(PROTECTED_PATTERN.into());
+        }
+        let blind_write = script
+            .commands
+            .iter()
+            .flat_map(|c| c.redirects.iter())
+            .any(|r| r.write && (r.target.dynamic || wildcard(&r.target.text)) && !temp_target(&r.target, script));
+        if blind_write && read_only_stage {
+            return Verdict::Deny(DYNAMIC_TARGET.into());
         }
         let (w, r) = shell_paths(script, tool.cwd.as_deref().unwrap_or(root));
         writes.extend(w);
@@ -580,7 +731,7 @@ mod tests {
         ));
         assert_eq!(
             judge(&exec("echo 'sem fim"), root, Activity::Run(&refine)),
-            Verdict::Deny(UNREADABLE_HERE.into())
+            Verdict::Deny(unreadable(shell::WHY_QUOTES))
         );
         assert_eq!(
             judge(&exec("echo 'sem fim"), root, Activity::Run(&build)),
@@ -588,8 +739,148 @@ mod tests {
         );
         assert_eq!(
             judge(&exec("echo 'passo ok"), root, Activity::Run(&build)),
-            Verdict::Deny(UNREADABLE.into())
+            Verdict::Deny(unreadable(shell::WHY_QUOTES))
         );
+    }
+
+    fn building() -> Run {
+        let mut build = run_at(Stage::Construir);
+        build.steps.push(crate::model::Step {
+            id: "S1".into(),
+            status: crate::model::StepStatus::Doing,
+            ..Default::default()
+        });
+        build
+    }
+
+    #[test]
+    fn the_known_ways_around_the_lock_are_closed() {
+        let root = Path::new("/p");
+        let build = building();
+        let refine = run_at(Stage::Refinar);
+        let envs = format!("{}passo ok", "env ".repeat(32));
+        let sudos = format!("{}passo ok", "sudo nice ".repeat(17));
+        let denied: Vec<(&str, &Run)> = vec![
+            (&envs, &build),
+            (&sudos, &build),
+            ("{ passo ok; }", &build),
+            ("if true; then passo ok; fi", &build),
+            ("for x in 1; do passo ok; done", &build),
+            ("f(){ passo ok; }; f", &build),
+            ("bash -lc 'passo ok'", &build),
+            ("sh -ec 'passo stop'", &build),
+            ("bash -c -- 'passo ok'", &build),
+            ("echo 'passo ok' | sh", &build),
+            ("sh <<'EOF'\npasso ok\nEOF", &build),
+            ("bash <<< 'passo ok'", &build),
+            ("env -S 'passo ok'", &build),
+            ("passo $s", &build),
+            ("passo $(echo ok)", &build),
+            ("passo o${x}k", &build),
+            ("cat .en?", &build),
+            ("cat .env*", &build),
+            ("cat \"$PWD/.env\"", &build),
+            ("cat .pass?/current", &build),
+            ("echo x > .pass?/current", &build),
+            ("echo x > src/$f.rs", &refine),
+            ("echo x > src/a.r?", &refine),
+            ("git --no-pager commit -m x", &build),
+            ("git --git-dir=.git commit -m x", &build),
+            ("git -p commit -m x", &build),
+            ("git update-ref HEAD abc", &build),
+            ("git symbolic-ref HEAD refs/heads/x", &build),
+            (r"find . -exec passo ok \;", &build),
+            ("sudo -u x git push", &build),
+            ("LD_PRELOAD=./x.so passo ok", &build),
+            ("$(printf 'pas%s' so) ok", &refine),
+        ];
+        for (command, run) in denied {
+            assert!(
+                matches!(judge(&exec(command), root, Activity::Run(run)), Verdict::Deny(_)),
+                "should deny: {command}"
+            );
+        }
+        let allowed: Vec<(&str, &Run)> = vec![
+            ("env FOO=1 npm test", &build),
+            ("sudo apt list", &build),
+            ("{ npm test; }", &build),
+            ("if npm test; then echo ok; fi", &build),
+            ("bash -lc 'npm test'", &build),
+            ("passo done - <<'EOF'\n{\"x\": \"passo ok\"}\nEOF", &refine),
+            ("cat \"$HOME/.config/x\"", &refine),
+            ("git --no-pager log", &build),
+            ("echo x > src/$f.rs", &build),
+            ("f=$(mktemp) && cat > \"$f\" <<'EOF'\n{\"a\": 1}\nEOF", &refine),
+            ("cat > \"$(mktemp -d)/plano.json\" <<'EOF'\n{}\nEOF", &refine),
+        ];
+        for (command, run) in allowed {
+            assert_eq!(
+                judge(&exec(command), root, Activity::Run(run)),
+                Verdict::Allow,
+                "should allow: {command}"
+            );
+        }
+        assert_eq!(
+            judge(&exec("passo $s"), root, Activity::Run(&build)),
+            Verdict::Deny(NO_SUBCOMMAND.into())
+        );
+        assert_eq!(
+            judge(&exec("bash script.sh"), root, Activity::Run(&refine)),
+            Verdict::Deny(unreadable(shell::WHY_SHELL))
+        );
+    }
+
+    #[test]
+    fn the_ceilings_keep_judging_fast() {
+        let root = Path::new("/p");
+        let build = building();
+        let cases = [
+            format!("{}passo ok", "env ".repeat(200)),
+            format!("{}passo ok", "sudo nice ".repeat(100)),
+            format!("{}passo ok{}", "echo $(".repeat(50), ")".repeat(50)),
+        ];
+        for command in &cases {
+            let _ = judge(&exec(command), root, Activity::Run(&build));
+            let started = std::time::Instant::now();
+            let verdict = judge(&exec(command), root, Activity::Run(&build));
+            let took = started.elapsed();
+            assert!(matches!(verdict, Verdict::Deny(_)), "{command}");
+            assert!(took.as_millis() < 5, "{} ms: {}", took.as_millis(), &command[..40]);
+        }
+        // The structure behind the time: one command per prefix chain, nothing multiplied.
+        assert_eq!(shell::lex(&cases[0]).commands.len(), 1);
+        assert!(!shell::lex(&cases[2]).readable);
+        assert!(!shell::lex(&"echo a;".repeat(200)).readable, "past 128 commands");
+        assert!(
+            !shell::lex(&format!("echo {}", "a".repeat(20_000))).readable,
+            "past 16 KiB"
+        );
+    }
+
+    #[test]
+    fn a_vocabulary_corpus_never_lets_passo_ok_through() {
+        let root = Path::new("/p");
+        let build = building();
+        let vocabulary = [
+            "env", "sudo", "nice", "sh", "-c", "{", "then", "do", "passo", "ok", "git", "commit", "$(", "<<EOF",
+        ];
+        let mut seed: u64 = 0xbeef;
+        for _ in 0..500 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let len = 1 + (seed >> 33) % 12;
+            let mut tokens = vec![];
+            for _ in 0..len {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                tokens.push(vocabulary[((seed >> 33) as usize) % vocabulary.len()]);
+            }
+            let text = tokens.join(" ");
+            let started = std::time::Instant::now();
+            let verdict = judge(&exec(&text), root, Activity::Run(&build));
+            assert!(started.elapsed().as_millis() < 50, "{text}");
+            if tokens.windows(2).any(|w| w == ["passo", "ok"]) {
+                assert!(matches!(verdict, Verdict::Deny(_)), "should deny: {text}");
+            }
+        }
     }
 
     #[test]

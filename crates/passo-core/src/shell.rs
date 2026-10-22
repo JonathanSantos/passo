@@ -2,10 +2,15 @@
 //! which files it redirects to. Not a shell: what it cannot read comes back as `readable: false`, never a panic.
 //!
 //! Understood: single and double quotes, `\` escapes, the separators `;` `&&` `||` `|` `&` newline `(` `)`,
-//! `$(…)` and backtick substitutions (each becomes a command of its own, read recursively), `${…}` and `$VAR`
-//! (they make a word `dynamic`), redirects with or without a descriptor number, `#` comments, and heredocs
-//! (`<<` and `<<-`, quoted delimiter or not), whose body is data. Programs that run another command
-//! (`sh -c`, `eval`, `xargs`, `env`, `sudo`, …) add that command to the list too.
+//! `$(…)` and backtick substitutions (each becomes a command of its own, read recursively), `${…}`, `$VAR` and
+//! brace expansion (they make a word `dynamic`), redirects with or without a descriptor number, `#` comments,
+//! heredocs (`<<` and `<<-`, quoted delimiter or not), whose body is data, and reserved words (`if`, `then`, `{`,
+//! `!`, …), which only start a new command. `sh -c`, `eval` and `env -S` have their script read as commands too; a
+//! shell without `-c` reads a script the lexer cannot see, so the line is unreadable.
+//!
+//! The lexer does not follow prefixes like `sudo` or `xargs`: the lock looks for `passo` and `git` in every word of
+//! every command instead. One pass over the text, with ceilings on size, commands and words: anything past them is
+//! unreadable, never slow.
 
 /// A command line, split into the simple commands it runs.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -13,6 +18,15 @@ pub struct Script {
     pub commands: Vec<SimpleCommand>,
     /// False when something was not understood (unbalanced quotes, an unclosed `$(`, a heredoc without its end).
     pub readable: bool,
+    /// Why it is unreadable, in the words the agent reads: the first cause found.
+    pub why: Option<&'static str>,
+}
+
+impl Script {
+    fn unreadable(&mut self, why: &'static str) {
+        self.readable = false;
+        self.why.get_or_insert(why);
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -34,8 +48,13 @@ impl SimpleCommand {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Word {
     pub text: String,
-    /// Had `$`, `~`, `*`, `?` or a substitution outside single quotes: its value is only known when it runs.
+    /// Had `$`, `~`, `*`, `?`, a brace expansion or a substitution outside single quotes: its value is only known
+    /// when it runs.
     pub dynamic: bool,
+    /// The commands of the substitutions in it, in order (`$(mktemp)` → `mktemp`).
+    pub subs: Vec<String>,
+    /// The variables it reads (`"$f"` → `f`).
+    pub vars: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -46,24 +65,50 @@ pub struct Redirect {
 
 /// How deep `sh -c`, `eval` and substitutions may nest before the command counts as unreadable.
 const MAX_DEPTH: usize = 6;
+/// Ceilings: past any of them the line is unreadable.
+pub const MAX_BYTES: usize = 16 * 1024;
+pub const MAX_COMMANDS: usize = 128;
+pub const MAX_WORDS: usize = 2048;
 
-/// Programs whose argument is another command line.
-const SHELLS: [&str; 4] = ["sh", "bash", "zsh", "dash"];
-/// Programs that run the command that follows them.
-const PREFIXES: [&str; 9] = [
-    "xargs", "env", "sudo", "nohup", "time", "command", "exec", "nice", "timeout",
+/// Programs whose `-c` argument is another command line; without `-c` they read a script the lexer cannot see.
+pub const SHELLS: [&str; 6] = ["sh", "bash", "zsh", "dash", "ksh", "fish"];
+/// Words that only start a command (`if x; then passo ok; fi`): at the start of a command they are skipped.
+const RESERVED: [&str; 19] = [
+    "{", "}", "!", "if", "then", "elif", "else", "fi", "for", "in", "do", "done", "while", "until", "case", "esac",
+    "function", "select", "time",
 ];
 
+pub const WHY_QUOTES: &str = "aspas, substituição ou heredoc sem fim";
+pub const WHY_SHELL: &str = "shell sem -c";
+pub const WHY_LONG: &str = "muito longo";
+pub const WHY_DEEP: &str = "substituições demais uma dentro da outra";
+
 pub fn lex(command: &str) -> Script {
-    lex_at(command, 0)
+    let mut script = lex_at(command, 0);
+    let words: usize = script
+        .commands
+        .iter()
+        .map(|c| c.words.len() + c.assignments.len())
+        .sum();
+    if script.commands.len() > MAX_COMMANDS || words > MAX_WORDS {
+        script.unreadable(WHY_LONG);
+    }
+    script
 }
 
 fn lex_at(command: &str, depth: usize) -> Script {
+    let mut script = Script {
+        commands: vec![],
+        readable: true,
+        why: None,
+    };
     if depth > MAX_DEPTH {
-        return Script {
-            commands: vec![],
-            readable: false,
-        };
+        script.unreadable(WHY_DEEP);
+        return script;
+    }
+    if command.len() > MAX_BYTES {
+        script.unreadable(WHY_LONG);
+        return script;
     }
     let mut lexer = Lexer {
         chars: command.chars().collect(),
@@ -73,75 +118,64 @@ fn lex_at(command: &str, depth: usize) -> Script {
         heredocs: vec![],
     };
     let tokens = lexer.tokens();
-    let mut script = Script {
-        commands: group(tokens),
-        readable: lexer.readable,
-    };
+    script.commands = group(tokens);
+    if !lexer.readable {
+        script.unreadable(WHY_QUOTES);
+    }
     for sub in std::mem::take(&mut lexer.subs) {
-        let inner = lex_at(&sub, depth + 1);
-        script.readable &= inner.readable;
-        script.commands.extend(inner.commands);
+        merge(&mut script, lex_at(&sub, depth + 1));
     }
-    let mut extra = vec![];
+    let mut extra = Script {
+        readable: true,
+        ..Script::default()
+    };
     for cmd in &script.commands {
-        if let Some(inner) = unwrap(cmd, depth) {
-            script.readable &= inner.readable;
-            extra.extend(inner.commands);
-        }
+        unwrap(cmd, depth, &mut extra);
     }
-    script.commands.extend(extra);
+    merge(&mut script, extra);
     script
 }
 
-/// The command a wrapper runs: `sh -c '…'`, `eval …`, `sudo …`, `xargs …`.
-fn unwrap(cmd: &SimpleCommand, depth: usize) -> Option<Script> {
-    let program = cmd.program()?;
+fn merge(script: &mut Script, inner: Script) {
+    if !inner.readable {
+        script.unreadable(inner.why.unwrap_or(WHY_QUOTES));
+    }
+    script.commands.extend(inner.commands);
+}
+
+/// The script a command runs: `sh -c '…'`, `eval …`, `env -S '…'`. A shell without `-c` makes the line unreadable.
+fn unwrap(cmd: &SimpleCommand, depth: usize, out: &mut Script) {
+    let Some(program) = cmd.program() else { return };
     let rest = &cmd.words[1..];
     if SHELLS.contains(&program) {
-        let at = rest.iter().position(|w| w.text == "-c")?;
-        let inner = rest.get(at + 1)?;
-        return Some(lex_at(&inner.text, depth + 1));
+        // `-c`, `-lc`, `-ec`: a single-dash cluster with a `c`; the script is the next word that is not an option.
+        let flag = rest.iter().position(|w| {
+            w.text.starts_with('-')
+                && !w.text.starts_with("--")
+                && w.text[1..].chars().all(|c| c.is_ascii_alphabetic())
+                && w.text.contains('c')
+        });
+        match flag.and_then(|at| rest[at + 1..].iter().find(|w| !w.text.starts_with('-'))) {
+            Some(script) if depth < MAX_DEPTH => merge(out, lex_at(&script.text, depth + 1)),
+            Some(_) => out.unreadable(WHY_DEEP),
+            None => out.unreadable(WHY_SHELL),
+        }
+        return;
     }
-    if program == "eval" {
+    if program == "eval" && depth < MAX_DEPTH {
         let text: Vec<&str> = rest.iter().map(|w| w.text.as_str()).collect();
-        return Some(lex_at(&text.join(" "), depth + 1));
+        merge(out, lex_at(&text.join(" "), depth + 1));
+        return;
     }
-    if PREFIXES.contains(&program) {
-        // Skip options, numbers (`nice -n 10`, `timeout 5`) and `VAR=x`. An option may take an argument the lexer
-        // cannot know about (`sudo -u x git push`), so the first two remaining words are both taken as the program:
-        // an extra command only gives the lock more to look at.
-        let candidates: Vec<usize> = rest
-            .iter()
-            .enumerate()
-            .filter(|(_, w)| {
-                let numeric = !w.text.is_empty() && w.text.chars().all(|c| c.is_ascii_digit() || c == '.');
-                !w.text.starts_with('-') && !numeric && !is_assignment(&w.text)
-            })
-            .map(|(i, _)| i)
-            .take(2)
-            .collect();
-        if candidates.is_empty() {
-            return None;
+    if program == "env" {
+        let split = rest.iter().enumerate().find_map(|(i, w)| match w.text.as_str() {
+            "-S" | "--split-string" => rest.get(i + 1).map(|w| w.text.clone()),
+            text => text.strip_prefix("--split-string=").map(str::to_string),
+        });
+        if let Some(script) = split {
+            merge(out, lex_at(&script, depth + 1));
         }
-        let mut script = Script {
-            commands: vec![],
-            readable: true,
-        };
-        for i in candidates {
-            let inner = SimpleCommand {
-                words: rest[i..].to_vec(),
-                redirects: vec![],
-                assignments: vec![],
-            };
-            if let Some(deeper) = unwrap(&inner, depth + 1) {
-                script.readable &= deeper.readable;
-                script.commands.extend(deeper.commands);
-            }
-            script.commands.insert(0, inner);
-        }
-        return Some(script);
     }
-    None
 }
 
 fn is_assignment(text: &str) -> bool {
@@ -319,6 +353,8 @@ impl Lexer {
         let mut word = Word::default();
         let quoted_name = matches!(self.peek(0), Some('\'' | '"'));
         let at_start = |w: &Word| w.text.is_empty();
+        // Brace expansion outside quotes (`{a,b}`, `pass{o,}`, `{1..3}`): an open brace, then a comma or `..`.
+        let mut brace = false;
         while let Some(c) = self.peek(0) {
             match c {
                 ' ' | '\t' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>' => break,
@@ -394,6 +430,21 @@ impl Lexer {
                     word.text.push(c);
                     word.dynamic = true;
                 }
+                '{' => {
+                    self.pos += 1;
+                    word.text.push(c);
+                    brace = true;
+                }
+                ',' if brace => {
+                    self.pos += 1;
+                    word.text.push(c);
+                    word.dynamic = true;
+                }
+                '.' if brace && self.peek(1) == Some('.') => {
+                    self.pos += 2;
+                    word.text.push_str("..");
+                    word.dynamic = true;
+                }
                 _ => {
                     self.pos += 1;
                     word.text.push(c);
@@ -412,22 +463,35 @@ impl Lexer {
             Some('(') => {
                 self.pos += 1;
                 match self.balanced(')') {
-                    Some(inner) => self
-                        .subs
-                        .push(inner.trim_start_matches('(').trim_end_matches(')').to_string()),
+                    Some(inner) => {
+                        let inner = inner.trim_start_matches('(').trim_end_matches(')').to_string();
+                        word.subs.push(inner.trim().to_string());
+                        self.subs.push(inner);
+                    }
                     None => self.readable = false,
                 }
             }
             Some('{') => {
                 self.pos += 1;
-                if self.balanced('}').is_none() {
-                    self.readable = false;
+                match self.balanced('}') {
+                    Some(inner) => {
+                        let name: String = inner
+                            .chars()
+                            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                            .collect();
+                        if !name.is_empty() {
+                            word.vars.push(name);
+                        }
+                    }
+                    None => self.readable = false,
                 }
             }
             Some(c) if c.is_ascii_alphanumeric() || c == '_' => {
+                let start = self.pos;
                 while self.peek(0).is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
                     self.pos += 1;
                 }
+                word.vars.push(self.chars[start..self.pos].iter().collect());
             }
             Some('?' | '#' | '@' | '*' | '!' | '$' | '-') => self.pos += 1,
             _ => {}
@@ -456,6 +520,7 @@ impl Lexer {
             }
         }
         if closed {
+            word.subs.push(inner.trim().to_string());
             self.subs.push(inner);
         } else {
             self.readable = false;
@@ -539,11 +604,19 @@ fn group(tokens: Vec<Token>) -> Vec<SimpleCommand> {
                 } else if std::mem::take(&mut discard) {
                     // A heredoc delimiter or a descriptor was already consumed; any word here is an argument.
                     current.words.push(word);
+                } else if current.words.is_empty()
+                    && !quoted_name
+                    && !word.dynamic
+                    && RESERVED.contains(&word.text.as_str())
+                {
+                    // `if`, `then`, `{`…: what follows starts a command.
                 } else if current.words.is_empty() && !quoted_name && is_assignment(&word.text) {
                     let (name, value) = word.text.split_once('=').unwrap_or_default();
                     let value = Word {
                         text: value.to_string(),
                         dynamic: word.dynamic,
+                        subs: word.subs.clone(),
+                        vars: word.vars.clone(),
                     };
                     current.assignments.push((name.to_string(), value));
                 } else {
@@ -587,8 +660,11 @@ mod tests {
         assert!(programs("x=`git commit -m a`").contains(&"git".to_string()));
         assert!(programs("sh -c 'passo stop'").contains(&"passo".to_string()));
         assert!(programs("eval \"passo ok\"").contains(&"passo".to_string()));
-        assert!(programs("xargs passo ok").contains(&"passo".to_string()));
-        assert!(programs("sudo -u x env A=1 nice -n 10 git push").contains(&"git".to_string()));
+        assert!(programs("bash -lc 'passo ok'").contains(&"passo".to_string()));
+        assert!(programs("sh -ec -- 'passo stop'").contains(&"passo".to_string()));
+        assert!(programs("env -S 'passo ok'").contains(&"passo".to_string()));
+        // Prefixes are not followed: the lock looks for `passo` in every word instead.
+        assert_eq!(programs("sudo -u x git push"), vec!["sudo"]);
         assert_eq!(lex("\"passo\" ok").commands[0].program(), Some("passo"));
     }
 
