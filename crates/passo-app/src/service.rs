@@ -83,6 +83,8 @@ pub struct App {
     /// The project map as read when the app opened: `Err` holds why it was ignored. Never fails the app: a broken
     /// map file must not switch the lock off.
     pub map: std::result::Result<Option<passo_core::map::Map>, String>,
+    /// Attached maps left out (they did not read); the project's own map is still good.
+    pub map_warnings: Vec<String>,
     clock: Arc<dyn Clock>,
     runner: Arc<dyn CheckRunner>,
     reporter: Option<Arc<dyn Reporter>>,
@@ -102,7 +104,10 @@ impl App {
         let mut config = loaded.config;
         fill_platform_models(&mut config);
         let attached = attached_roots(&layout.root, &config);
-        let map = passo_store::map::load_all(&layout, &attached).map_err(|e| format!("{e:#}"));
+        let (map, map_warnings) = match passo_store::map::load_all(&layout, &attached) {
+            Ok((map, warnings)) => (Ok(map), warnings),
+            Err(e) => (Err(format!("{e:#}")), vec![]),
+        };
         Ok(App {
             store: Store::new(layout.clone()),
             layout,
@@ -111,6 +116,7 @@ impl App {
             catalog,
             bin: "passo".into(),
             map,
+            map_warnings,
             clock: Arc::new(SystemClock),
             runner: Arc::new(ShellRunner),
             reporter: None,
@@ -321,20 +327,51 @@ impl App {
         }
     }
 
-    /// One line per attached project that has no map yet.
+    /// One line per attached project that is missing, has no map yet, or whose map was left out.
     pub fn attached_warnings(&self) -> Vec<String> {
-        self.config
+        let mut out: Vec<String> = self
+            .config
             .projects
             .iter()
             .zip(attached_roots(&self.layout.root, &self.config))
-            .filter(|(_, (_, root))| !Layout::new(root).project_map().join("areas").is_dir())
-            .map(|(p, _)| {
-                format!(
-                    "Aviso: projeto anexado {} sem mapa: rode passo map em {}",
-                    p.name, p.path
-                )
+            .filter_map(|(p, (_, root))| {
+                if !root.is_dir() {
+                    Some(format!(
+                        "Aviso: projeto anexado {}: a pasta {} não existe",
+                        p.name, p.path
+                    ))
+                } else if !Layout::new(&root).project_map().join("areas").is_dir() {
+                    Some(format!(
+                        "Aviso: projeto anexado {} sem mapa: rode passo map em {}",
+                        p.name, p.path
+                    ))
+                } else {
+                    None
+                }
             })
-            .collect()
+            .collect();
+        out.extend(self.map_warnings.iter().map(|w| format!("Aviso: {w}")));
+        out
+    }
+
+    /// Changed files in the project and, as `name:path`, in each attached project that is a git repository: a
+    /// read-only stage or a mapping must leave all of them as they were.
+    pub(crate) fn dirty_everywhere(&self) -> Result<Vec<String>> {
+        let git = self.git();
+        let mut out = if git.is_repo() { git.dirty()? } else { vec![] };
+        for (name, root) in attached_roots(&self.layout.root, &self.config) {
+            let other = crate::infra::Git::new(&root);
+            if root.is_dir() && other.is_repo() {
+                out.extend(
+                    other
+                        .dirty()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|f| format!("{name}:{f}")),
+                );
+            }
+        }
+        Ok(out)
     }
 
     /// One line when hooks failed since the run began: the lock may not be holding.
@@ -543,7 +580,7 @@ impl App {
 
     /// One line about the project map for `doctor`: none yet, its size and age, or why it was ignored.
     pub fn map_summary(&self) -> String {
-        match passo_store::map::load(&self.layout) {
+        match &self.map {
             Ok(None) => "nenhum (opcional: peça ao agente \"com o passo, mapeie o projeto\")".into(),
             Err(e) => format!("ignorado: {e}"),
             Ok(Some(map)) => {
@@ -1090,7 +1127,7 @@ impl App {
         if !self.uses_git(run) {
             return;
         }
-        if let Ok(dirty) = self.git().dirty() {
+        if let Ok(dirty) = self.dirty_everywhere() {
             std::fs::write(
                 self.baseline_path(run),
                 serde_json::to_string(&dirty).unwrap_or_default(),
@@ -1109,8 +1146,7 @@ impl App {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
         let changed: Vec<String> = self
-            .git()
-            .dirty()?
+            .dirty_everywhere()?
             .into_iter()
             .filter(|f| !before.contains(f))
             .collect();

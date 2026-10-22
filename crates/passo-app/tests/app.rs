@@ -1478,3 +1478,67 @@ fn a_second_mapping_keeps_the_notes_and_reads_the_current_map() {
         "{text}"
     );
 }
+
+#[test]
+fn attached_maps_are_checked_and_a_broken_one_is_only_a_warning() {
+    let (p, attached) = with_attached("attached-checks", true);
+    // A dependency on an area the attached map does not have names the file.
+    p.write(
+        ".passo/map/areas/tarefas.md",
+        "---\npaths: [src/lib.txt]\ndepends_on: [api/nada]\n---\nAs tarefas.\n",
+    );
+    let err = p.app().map.clone().unwrap_err();
+    assert!(
+        err.contains("tarefas.md") && err.contains("`api/nada` não é uma área do mapa de api"),
+        "{err}"
+    );
+    p.write(
+        ".passo/map/areas/tarefas.md",
+        "---\npaths: [src/lib.txt]\ndepends_on: [xyz/foo]\n---\nAs tarefas.\n",
+    );
+    assert!(
+        p.app()
+            .map
+            .clone()
+            .unwrap_err()
+            .contains("o projeto `xyz` não está em projects")
+    );
+
+    // A broken area in the attached project leaves its map out; ours stays good.
+    p.write(
+        ".passo/map/areas/tarefas.md",
+        "---\npaths: [src/lib.txt]\n---\nAs tarefas.\n",
+    );
+    std::fs::write(attached.join(".passo/map/areas/x.md"), "---\ncampo_errado: 1\n---\nx\n").unwrap();
+    let app = p.app();
+    assert!(app.map.as_ref().unwrap().is_some());
+    let warnings = app.attached_warnings().join("\n");
+    assert!(warnings.contains("mapa de api ignorado"), "{warnings}");
+    std::fs::remove_dir_all(&attached).ok();
+    assert!(p.app().attached_warnings().join("\n").contains("não existe"));
+}
+
+#[test]
+fn a_read_only_stage_that_changes_an_attached_repository_is_refused() {
+    let (p, attached) = with_attached("attached-dirty", true);
+    let git = |args: &[&str]| {
+        let out = Command::new("git").args(args).current_dir(&attached).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"]);
+    git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "api"]);
+    p.app().start("Mudar as tarefas", Some(passo_core::Size::P)).unwrap();
+    std::fs::write(attached.join("src/x.ts"), "export const x = 2;\n").unwrap();
+    let brief = p.draft("brief-att", r#"{"entendimento":"x","escopo":["a"]}"#);
+    let err = p
+        .app()
+        .done(DoneInput {
+            text: brief,
+            ..Default::default()
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("api:src/x.ts"), "{err}");
+    std::fs::remove_dir_all(attached).ok();
+}

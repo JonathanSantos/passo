@@ -66,13 +66,23 @@ pub fn load(layout: &Layout) -> Result<Option<Map>> {
 }
 
 /// The project's map plus each attached project's, their ids prefixed with the project's name (`api/armazenamento`,
-/// and so their dependencies and libs). An attached project without a map adds nothing.
-pub fn load_all(layout: &Layout, attached: &[(String, PathBuf)]) -> Result<Option<Map>> {
+/// and so their dependencies and libs). An attached project without a map adds nothing; one whose map does not
+/// read is left out with a warning, and the project's own map stays valid. A `depends_on` with a prefix must name
+/// an attached project and one of its areas.
+pub fn load_all(layout: &Layout, attached: &[(String, PathBuf)]) -> Result<(Option<Map>, Vec<String>)> {
     let mut map = load(layout)?;
+    let mut warnings = vec![];
+    let mut loaded: Vec<&str> = vec![];
     for (name, root) in attached {
-        let Some(other) = load(&Layout::new(root))? else {
-            continue;
+        let other = match load(&Layout::new(root)) {
+            Ok(Some(other)) => other,
+            Ok(None) => continue,
+            Err(e) => {
+                warnings.push(format!("mapa de {name} ignorado: {e:#}"));
+                continue;
+            }
         };
+        loaded.push(name);
         let prefix = |id: &str| {
             if id.contains('/') {
                 id.to_string()
@@ -92,7 +102,27 @@ pub fn load_all(layout: &Layout, attached: &[(String, PathBuf)]) -> Result<Optio
             merged.libs.push(lib);
         }
     }
-    Ok(map)
+    if let Some(map) = &map {
+        let dir = layout.project_map().join("areas");
+        for area in map.areas.iter().filter(|a| !a.attached()) {
+            for dep in area.depends_on.iter().filter(|d| d.contains('/')) {
+                let project = dep.split('/').next().unwrap_or("");
+                let problem = if !attached.iter().any(|(name, _)| name == project) {
+                    format!("o projeto `{project}` não está em projects do passo.yaml")
+                } else if !loaded.contains(&project) {
+                    continue;
+                } else if !map.areas.iter().any(|a| &a.id == dep) {
+                    format!("`{dep}` não é uma área do mapa de {project}")
+                } else {
+                    continue;
+                };
+                let path = dir.join(format!("{}.md", area.id));
+                let line = line_of(&std::fs::read_to_string(&path).unwrap_or_default(), "depends_on");
+                bail!("{}{line}: depends_on cita {problem}", path.display());
+            }
+        }
+    }
+    Ok((map, warnings))
 }
 
 fn read_node(path: &Path, id: &str, kind: NodeKind) -> Result<Node> {

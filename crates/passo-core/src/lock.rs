@@ -303,6 +303,15 @@ fn shell_paths(script: &Script, cwd: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut writes = vec![];
     let mut reads = vec![];
     for cmd in &script.commands {
+        // After `cd ../api`, `echo x > f` writes to ../api/f.
+        let resolved;
+        let cwd = match &cmd.dir {
+            Some(dir) => {
+                resolved = resolve(cwd, dir);
+                resolved.as_path()
+            }
+            None => cwd,
+        };
         for redirect in cmd
             .redirects
             .iter()
@@ -713,6 +722,15 @@ mod tests {
         );
         assert_eq!(
             judge_with(&write("/p/src/a.rs"), root, &attached, Activity::Run(&run)),
+            Verdict::Allow
+        );
+        // `cd` moves where the next commands write.
+        assert!(matches!(
+            judge_with(&exec("cd ../api && echo x > f"), root, &attached, Activity::Run(&run)),
+            Verdict::Deny(_)
+        ));
+        assert_eq!(
+            judge_with(&exec("cd src && echo x > f"), root, &attached, Activity::Run(&run)),
             Verdict::Allow
         );
     }

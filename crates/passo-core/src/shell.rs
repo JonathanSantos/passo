@@ -36,6 +36,8 @@ pub struct SimpleCommand {
     pub redirects: Vec<Redirect>,
     /// `VAR=x` before the program.
     pub assignments: Vec<(String, Word)>,
+    /// Where it runs after the `cd`s before it in the line, relative to where the line starts (or absolute).
+    pub dir: Option<String>,
 }
 
 impl SimpleCommand {
@@ -82,6 +84,7 @@ pub const WHY_QUOTES: &str = "aspas, substituição ou heredoc sem fim";
 pub const WHY_SHELL: &str = "shell sem -c";
 pub const WHY_LONG: &str = "muito longo";
 pub const WHY_DEEP: &str = "substituições demais uma dentro da outra";
+pub const WHY_CD: &str = "cd com variável";
 
 pub fn lex(command: &str) -> Script {
     let mut script = lex_at(command, 0);
@@ -122,6 +125,9 @@ fn lex_at(command: &str, depth: usize) -> Script {
     if !lexer.readable {
         script.unreadable(WHY_QUOTES);
     }
+    if !follow_cd(&mut script.commands) {
+        script.unreadable(WHY_CD);
+    }
     for sub in std::mem::take(&mut lexer.subs) {
         merge(&mut script, lex_at(&sub, depth + 1));
     }
@@ -134,6 +140,44 @@ fn lex_at(command: &str, depth: usize) -> Script {
     }
     merge(&mut script, extra);
     script
+}
+
+/// Gives each command the folder it runs in, following `cd`, `pushd`, `popd` and `cd -`. False when a `cd` goes
+/// somewhere only known when it runs (`cd $x`, `cd ~`, a bare `cd`).
+fn follow_cd(commands: &mut [SimpleCommand]) -> bool {
+    let join = |dir: &Option<String>, to: &str| match dir {
+        _ if to.starts_with('/') => to.to_string(),
+        Some(d) => format!("{d}/{to}"),
+        None => to.to_string(),
+    };
+    let mut dir: Option<String> = None;
+    let mut previous: Option<String> = None;
+    let mut stack: Vec<Option<String>> = vec![];
+    let mut known = true;
+    for cmd in commands.iter_mut() {
+        cmd.dir = dir.clone();
+        match cmd.program() {
+            Some(program @ ("cd" | "pushd")) => {
+                let target = cmd.words[1..]
+                    .iter()
+                    .find(|w| w.text == "-" || !w.text.starts_with('-'));
+                match target {
+                    Some(w) if w.text == "-" && !w.dynamic => std::mem::swap(&mut dir, &mut previous),
+                    Some(w) if !w.dynamic => {
+                        if program == "pushd" {
+                            stack.push(dir.clone());
+                        }
+                        previous = dir.clone();
+                        dir = Some(join(&dir, &w.text));
+                    }
+                    _ => known = false,
+                }
+            }
+            Some("popd") => dir = stack.pop().flatten(),
+            _ => {}
+        }
+    }
+    known
 }
 
 fn merge(script: &mut Script, inner: Script) {

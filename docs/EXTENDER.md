@@ -199,7 +199,7 @@ projects:
     path: ../api
 ```
 
-O Passo lê o mapa de `../api/.passo/map/` com os ids prefixados (`api/armazenamento`), e uma área daqui pode citar `depends_on: [api/armazenamento]`. As áreas anexadas nunca casam os arquivos daqui: chegam ao contexto por dependência ou pelas palavras do pedido, mostradas a partir daqui (`api/armazenamento (../api/src/store.ts)`). O projeto anexado é só leitura: durante um run ou um mapeamento, a trava nega escrita nele. O mapa dele se faz lá, com o `passo map` de lá; sem mapa, o `start` e o `doctor` avisam e seguem.
+O Passo lê o mapa de `../api/.passo/map/` com os ids prefixados (`api/armazenamento`), e uma área daqui pode citar `depends_on: [api/armazenamento]`. As áreas anexadas nunca casam os arquivos daqui: chegam ao contexto por dependência ou pelas palavras do pedido, mostradas a partir daqui (`api/armazenamento (../api/src/store.ts)`). O projeto anexado é só leitura: durante um run ou um mapeamento, a trava nega escrita nele (inclusive depois de um `cd ../api` no mesmo comando), e, quando ele é um repositório git, a entrega de uma etapa só de leitura e a do mapa conferem que nada mudou lá (`api:src/x.ts` no aviso). O mapa dele se faz lá, com o `passo map` de lá; sem mapa, o `start` e o `doctor` avisam e seguem. Um `depends_on: [api/x]` precisa citar um projeto de `projects` e uma área que existe no mapa dele; um mapa anexado que não lê fica de fora com aviso, e o mapa daqui continua valendo.
 
 ## Aprender com os runs
 

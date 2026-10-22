@@ -65,7 +65,7 @@ impl App {
                         .map(|(_, root)| root.display().to_string()),
                 )
                 .collect(),
-            baseline: if repo { git.dirty().unwrap_or_default() } else { vec![] },
+            baseline: self.dirty_everywhere().unwrap_or_default(),
             stops: 0,
         };
         store_map::save_task(&self.layout, &task)?;
@@ -122,9 +122,9 @@ impl App {
         let git = self.git();
         let repo = git.is_repo();
         // The explorer has a terminal: an install rewrites a tracked lockfile without the hook seeing it.
-        if repo {
-            let changed: Vec<String> = git
-                .dirty()
+        {
+            let changed: Vec<String> = self
+                .dirty_everywhere()
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|f| !task.baseline.contains(f))
