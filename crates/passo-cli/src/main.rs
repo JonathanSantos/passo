@@ -200,7 +200,8 @@ fn agent_platform() -> Option<Box<dyn passo_adapters::Platform>> {
     passo_adapters::registry().into_iter().find(|p| p.agent_env(&env))
 }
 
-/// Dev decisions are refused inside an agent's environment, hooks or not: subagents run outside the hooks.
+/// Dev decisions are refused inside an agent's environment, hooks or not: a session opened outside the project (or a
+/// platform without hooks) runs without the project's lock.
 /// `PASSO_DEV=1` is for the dev who runs the CLI in the agent's terminal on purpose.
 fn refuse_in_agent_env(command: &str) -> Result<()> {
     if std::env::var("PASSO_DEV").is_ok_and(|v| v == "1") || agent_platform().is_none() {

@@ -54,7 +54,7 @@ aceito              aceita a entrega (no chat, um ok solto não basta: aceitar j
 
 Os limites do tamanho também chegam a você: o diff que passou de `max_files`/`max_lines` e o run que passou do teto de tokens (`max_tokens`: 60k em `pp`, 150k em `p`, 400k em `m`, 1M em `g`). O Passo mede os tokens nas transcrições a cada entrega e no fim de cada vez do agente; passou, ele para e pergunta: `ok` segue assim, `passo size g` sobe o teto. `passo status` e o painel mostram `Tokens: 120k de 400k`.
 
-Responder no chat funciona porque o hook de prompt só dispara com o que **você** digita. O agente, por sua vez, não consegue rodar `passo ok`: a trava nega pelo hook, e a própria CLI recusa `ok`, `no`, `change`, `size` e `stop` quando roda no ambiente do agente (o Claude Code marca esse ambiente, inclusive o dos subagentes, que não passam pelos hooks). Se você quiser rodar um desses comandos de propósito no terminal do agente, use `PASSO_DEV=1 passo ok`.
+Responder no chat funciona porque o hook de prompt só dispara com o que **você** digita. O agente, por sua vez, não consegue rodar `passo ok`: a trava nega pelo hook, e a própria CLI recusa `ok`, `no`, `change`, `size` e `stop` quando roda no ambiente do agente (o Claude Code marca esse ambiente, inclusive o dos subagentes). São duas camadas: os hooks do projeto valem para a sessão aberta nele e para os subagentes dela; a recusa da CLI cobre o que roda fora desses hooks. Se você quiser rodar um desses comandos de propósito no terminal do agente, use `PASSO_DEV=1 passo ok`.
 
 ## Começar
 
@@ -185,7 +185,7 @@ O mesmo pedido de tamanho `m` no projeto de exemplo ([`examples/tarefas`](exampl
 O que a simulação mostrou:
 
 - **O modelo barato chegou ao mesmo resultado.** O Haiku, fazendo todas as etapas sozinho (inclusive planejar e revisar, que por padrão pedem o nível forte), entregou o pedido inteiro, com os mesmos casos de borda que o Sonnet, e passou na suíte escondida.
-- **O revisor barato achou um problema real.** Um passo do Haiku commitou um `tarefas.json` gerado por teste. O revisor apontou, tentou apagar na Verificação e foi barrado (a etapa é só leitura; quem barrou foi a conferência pelo git, porque subagentes não passam pelos hooks). O dev recusou a entrega com uma frase, e o ajuste virou um passo de correção. Esse caso virou uma melhoria no Passo: um passo que muda arquivos fora do plano agora fica anotado para o revisor e para o dev.
+- **O revisor barato achou um problema real.** Um passo do Haiku commitou um `tarefas.json` gerado por teste. O revisor apontou, tentou apagar na Verificação e foi barrado (a etapa é só leitura; quem barrou foi a conferência pelo git, porque esses subagentes vinham de uma sessão aberta fora do projeto, sem os hooks dele). O dev recusou a entrega com uma frase, e o ajuste virou um passo de correção. Esse caso virou uma melhoria no Passo: um passo que muda arquivos fora do plano agora fica anotado para o revisor e para o dev.
 - **O custo para o dev ficou em 2 a 3 decisões**, uma delas uma pergunta com a resposta recomendada pronta.
 - O Haiku gastou cerca do dobro de tokens do Sonnet neste pedido, numa fração do preço por token.
 
@@ -206,7 +206,8 @@ O Passo junta o que mais rendia nos dois harnesses anteriores: o fluxo conduzido
 ## Estado
 
 - **Testado de ponta a ponta**: o fluxo inteiro, nos quatro tamanhos, com git de verdade (branch, commit por passo, merge, `stop`), a validação das entregas, a auditoria, as métricas, o painel e a simulação com Haiku e Sonnet descrita acima.
-- **Ainda não testado ao vivo**: os hooks numa sessão real do Claude Code (a trava, o Stop e a aprovação pelo chat) e o formato de hooks do Copilot no VS Code. Esses caminhos estão cobertos por testes com payloads sintéticos; a simulação usou subagentes, que não passam pelos hooks. O formato do Copilot é o ponto mais incerto, e por isso fica isolado no adapter. Também não rodaram ao vivo: o aviso do orçamento de ações como `additionalContext` num `PreToolUse` permitido (o canal segue a referência atual de hooks do Claude Code), a recusa dos comandos do dev dentro de um subagente real (testada com o binário e um ambiente sintético) e o próprio `examples/simulacao/rodar.sh`, que gasta tokens da conta.
+- **Testado ao vivo no Claude Code** (2.1.307, Sonnet 5.5, um TodoMVC com React e uma API Node de tamanho `g`, do pedido ao merge): a aprovação, a recusa e o `aceito` pelo chat; a trava negando `git rm`; os hooks registrando também as ações dos subagentes (173 ações no log contra 34 do agente principal); a medição de tokens nas transcrições, com as dos subagentes; a revisão reprovando critérios e o Passo abrindo correções. O teste achou dois defeitos, já corrigidos: uma revisão reaproveitada depois de um ajuste era aceita, e a checagem de evidência lia `install/dev/build` como caminho.
+- **Ainda não testado ao vivo**: o hook `Stop` bloqueando (cada vez terminou num gate do dev), o gate de tokens e o aviso do orçamento de ações (o run não chegou aos limites), a recusa dos comandos do dev dentro de um subagente real (testada com o binário e um ambiente sintético), o formato de hooks do Copilot no VS Code, o ponto mais incerto e por isso isolado no adapter, e o próprio `examples/simulacao/rodar.sh`, que gasta tokens da conta.
 
 ## Documentos
 
