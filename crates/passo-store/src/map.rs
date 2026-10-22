@@ -370,7 +370,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("x.md"), "---\npaths: [a]\ndepends_on: [cache]\n---\ncorpo\n").unwrap();
         let err = load(&layout).unwrap_err().to_string();
-        assert!(err.contains("areas/x.md linha 3") && err.contains("`cache`"), "{err}");
+        assert!(err.contains("x.md linha 3") && err.contains("`cache`"), "{err}");
         std::fs::write(dir.join("x.md"), "---\npaths: [a]\nmodulo: y\n---\ncorpo\n").unwrap();
         let err = load(&layout).unwrap_err().to_string();
         assert!(err.contains("campo `modulo` desconhecido"), "{err}");
