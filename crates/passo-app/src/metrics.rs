@@ -59,7 +59,10 @@ pub struct Metrics {
     pub steps_failed: u32,
     pub rounds: u32,
     pub plan_versions: u32,
+    /// Everything the run recorded as a change (answers, rejections, request changes, sizes, plan versions, hints).
     pub changes: u32,
+    /// The same, per kind: `resposta`, `recusa`, `mudança no pedido`…
+    pub changes_by_kind: BTreeMap<String, u32>,
     pub tool_calls: u32,
     pub lock_denied: u32,
     pub invalid_outputs: u32,
@@ -78,6 +81,10 @@ pub fn compute(run: &Run, events: &[Event], usage: &[Usage], now: DateTime<Utc>)
         rounds: run.rounds,
         plan_versions: run.plan_version,
         changes: run.changes.len() as u32,
+        changes_by_kind: run.changes.iter().fold(BTreeMap::new(), |mut kinds, c| {
+            *kinds.entry(c.kind.label().to_string()).or_default() += 1;
+            kinds
+        }),
         stages: Stage::ALL
             .iter()
             .map(|s| StageMetrics {

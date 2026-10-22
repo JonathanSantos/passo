@@ -1309,6 +1309,14 @@ fn a_run_past_its_token_limit_stops_for_the_dev_and_the_transcript_is_read_once(
     let run = p.app().active().unwrap();
     assert!(run.tokens_accepted && run.gate.is_none());
     assert_eq!(run.stage, Stage::Refinar);
+
+    // The dev's word is measured first: the run ends with what it really spent.
+    let more = line("50000")
+        .replace("\"m1\"", "\"m2\"")
+        .replace("\"output_tokens\":100000", "\"output_tokens\":0");
+    std::fs::write(&transcript, line("400000") + &more).unwrap();
+    p.app().decide(DevAction::Stop(String::new()), Source::Cli).unwrap();
+    assert_eq!(p.app().store.load(&run.id).unwrap().tokens, 550_000);
     std::fs::remove_file(&transcript).ok();
 }
 

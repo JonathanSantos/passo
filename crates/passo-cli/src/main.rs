@@ -478,7 +478,7 @@ fn stats(run: Option<String>, json: bool) -> Result<String> {
         out.push_str(&format!("{tokens}\n\n"));
     }
     out.push_str(&format!(
-        "Tempo total      {}\nVez do dev       {} vez(es), {} esperando\nPassos           {} feitos, {} tentativas que falharam\nVoltas           {} · plano v{} · {} mudança(s) no pedido\nAgente           {} ações · {} negadas pela trava · {} entregas inválidas\nEscaladas        {}\n",
+        "Tempo total      {}\nVez do dev       {} vez(es), {} esperando\nPassos           {} feitos, {} tentativas que falharam\nVoltas           {} · plano v{}\nRegistros        {}\nAgente           {} ações · {} negadas pela trava · {} entregas inválidas\nEscaladas        {}\n",
         duration(m.total_ms),
         m.dev_turns,
         duration(m.dev_wait_ms),
@@ -486,7 +486,15 @@ fn stats(run: Option<String>, json: bool) -> Result<String> {
         m.steps_failed,
         m.rounds,
         m.plan_versions,
-        m.changes,
+        if m.changes_by_kind.is_empty() {
+            "nenhum".to_string()
+        } else {
+            m.changes_by_kind
+                .iter()
+                .map(|(kind, n)| format!("{kind} {n}"))
+                .collect::<Vec<_>>()
+                .join(" · ")
+        },
         m.tool_calls,
         m.lock_denied,
         m.invalid_outputs,

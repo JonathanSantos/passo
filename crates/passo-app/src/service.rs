@@ -484,6 +484,8 @@ impl App {
     pub fn decide(&self, action: DevAction, source: Source) -> Result<Run> {
         let run = self.active()?;
         self.ensure_run_branch(&run)?;
+        // The last measurement before the dev's word: an accepted run keeps the tokens it really spent.
+        let run = self.spend(run)?;
         let command = match action {
             DevAction::Approve(words) => Command::Approve(parse_answers(&words)),
             DevAction::Reject(text) => Command::Reject(text),

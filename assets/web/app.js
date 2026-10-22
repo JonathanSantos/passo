@@ -305,7 +305,7 @@
       ${budget(s)}
       <div class="stat"><div class="v">${m.steps_failed}</div><div class="l">tentativas que falharam · ${m.invalid_outputs} entregas inválidas</div></div>
       <div class="stat"><div class="v">${m.tool_calls}</div><div class="l">ações do agente · ${m.lock_denied} negadas</div></div>
-      <div class="stat"><div class="v">${m.changes}</div><div class="l">mudanças · plano v${m.plan_versions}</div></div>
+      <div class="stat"><div class="v">${m.changes}</div><div class="l">${esc(Object.entries(m.changes_by_kind || {}).map(([k, n]) => k + " " + n).join(" · ") || "registros")} · plano v${m.plan_versions}</div></div>
       </div><div class="bars"><h2 style="margin-top:6px">${useTokens ? "Tokens" : "Tempo"} por etapa</h2>${bars}</div>${models ? `<div class="models">${models}</div>` : ""}`;
   }
 
