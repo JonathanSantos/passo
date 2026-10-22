@@ -694,6 +694,16 @@ fn spending_below_the_limit_changes_nothing_and_above_it_asks_the_dev() {
         sim.apply(Command::Reject("não".into())),
         Err(FlowError::Wrong(text)) if text.contains("aqui não há o que recusar")
     ));
+    // Spending more while the dev decides updates what the gate says.
+    sim.apply(Command::Spent(450_000)).unwrap();
+    assert!(
+        sim.run
+            .gate
+            .as_ref()
+            .unwrap()
+            .detail
+            .starts_with("Tokens: 450k de 400k")
+    );
 }
 
 #[test]

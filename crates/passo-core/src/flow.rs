@@ -873,6 +873,14 @@ impl<'a> Engine<'a> {
     fn spent(&self, run: &mut Run, tokens: u64, out: &mut Outcome, now: DateTime<Utc>) {
         run.tokens = tokens;
         let max = self.profile(run).max_tokens;
+        // The open token gate shows what the run spent by now, not what it had spent when the gate opened.
+        if run.gate.as_ref().is_some_and(|g| g.kind == GateKind::Tokens) && max > 0 {
+            let detail = tokens_detail(run, max);
+            if let Some(gate) = run.gate.as_mut() {
+                gate.detail = detail;
+            }
+            return;
+        }
         if max == 0 || tokens <= max || run.tokens_accepted || run.gate.is_some() {
             return;
         }
