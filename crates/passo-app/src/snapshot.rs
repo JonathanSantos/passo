@@ -66,3 +66,35 @@ pub struct Snapshot {
     /// Project map areas and libs the agent was shown on its current turn.
     pub map_nodes: Vec<String>,
 }
+
+impl Snapshot {
+    /// The same snapshot with `redact` applied to every event text and data, every check output, the feedback and
+    /// the rendered texts.
+    pub fn redacted(mut self, redact: impl Fn(&str) -> String) -> Snapshot {
+        fn scrub(value: &mut serde_json::Value, redact: &dyn Fn(&str) -> String) {
+            match value {
+                serde_json::Value::String(s) => *s = redact(s),
+                serde_json::Value::Array(items) => items.iter_mut().for_each(|v| scrub(v, redact)),
+                serde_json::Value::Object(map) => map.values_mut().for_each(|v| scrub(v, redact)),
+                _ => {}
+            }
+        }
+        for event in &mut self.events {
+            event.text = redact(&event.text);
+            scrub(&mut event.data, &redact);
+        }
+        if let Some(run) = &mut self.run {
+            for check in &mut run.checks {
+                check.command = redact(&check.command);
+                check.output = redact(&check.output);
+            }
+            run.feedback = run.feedback.as_deref().map(&redact);
+            run.notes = run.notes.iter().map(|n| redact(n)).collect();
+        }
+        self.checks_step = self.checks_step.iter().map(|c| redact(c)).collect();
+        self.checks_final = self.checks_final.iter().map(|c| redact(c)).collect();
+        self.next_text = self.next_text.as_deref().map(&redact);
+        self.gate_text = self.gate_text.as_deref().map(&redact);
+        self
+    }
+}

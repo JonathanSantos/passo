@@ -124,15 +124,19 @@ fn decide(
             let mut warning = None;
             if mapping {
                 let (kind, text) = match &verdict {
-                    Verdict::Allow => ("tool", describe(&tool, &root)),
+                    Verdict::Allow => ("tool", app.redact(&describe(&tool, &root))),
                     Verdict::Deny(reason) => ("lock.denied", reason.clone()),
                 };
-                app.map_log_event(kind, text, json!({ "tool": tool.name, "call": describe(&tool, &root) }));
+                app.map_log_event(
+                    kind,
+                    text,
+                    json!({ "tool": tool.name, "call": app.redact(&describe(&tool, &root)) }),
+                );
             }
             if let Some(run) = run.as_ref().filter(|r| r.active()) {
                 let step = run.current_step().filter(|_| run.stage == Stage::Construir);
                 let (kind, text) = match &verdict {
-                    Verdict::Allow => ("tool", describe(&tool, &root)),
+                    Verdict::Allow => ("tool", app.redact(&describe(&tool, &root))),
                     Verdict::Deny(reason) => ("lock.denied", reason.clone()),
                 };
                 let mut drafts = vec![EventDraft {
@@ -142,7 +146,7 @@ fn decide(
                     text,
                     data: json!({
                         "tool": tool.name,
-                        "call": describe(&tool, &root),
+                        "call": app.redact(&describe(&tool, &root)),
                         "step": step.map(|s| s.id.clone()),
                         "attempt": step.map(|s| s.attempts),
                     }),

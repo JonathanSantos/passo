@@ -98,6 +98,15 @@ tests:
 
 A lista substitui a padrão (listas substituem nas camadas), então repita os que quiser manter. A trava também é consultada, e o dev aprova os comandos junto com o plano.
 
+## Segredos no log
+
+O log de auditoria, o `run.json`, o painel e o relatório guardam texto vindo do agente e da shell (comandos, saída das checagens). Antes de guardar, o Passo esconde valores de chaves como `token`, `secret`, `password`, `api_key`, `authorization`, `cookie` e `session` (`TOKEN=…`, `password: …`, `--token …`, `Authorization: Bearer …`), tokens com prefixo conhecido (`ghp_`, `sk-`, `AKIA…`, blocos PEM) e valores longos de linhas de `.env`. Para tratar outras palavras como chave:
+
+```yaml
+audit:
+  secrets: [minha_chave, segredo_interno]
+```
+
 ## Tamanhos (o fast travel)
 
 ```yaml

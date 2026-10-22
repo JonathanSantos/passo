@@ -1090,3 +1090,34 @@ fn the_tree_leaves_tooling_out_and_a_change_redraws_it() {
         .unwrap();
     assert!(tree().contains("docs/ (1)"), "{}", tree());
 }
+
+#[test]
+fn secrets_stay_out_of_the_log_the_run_and_the_report() {
+    let p = Project::new("secrets");
+    std::fs::write(
+        p.root.join(".passo/passo.yaml"),
+        "checks:\n  step: [\"echo API_KEY=0123456789abcdef0123; test -f src/ok.txt\"]\n  final: [\"true\"]\n",
+    )
+    .unwrap();
+    p.git(&["commit", "-qam", "segredo"]);
+    p.app().start("Trocar o título", Some(passo_core::Size::Pp)).unwrap();
+    p.hook(
+        HookEvent::PreToolUse,
+        tool(
+            &p.root,
+            "Bash",
+            serde_json::json!({"command": "curl -H \"Authorization: Bearer abc123def456\" https://api.x"}),
+        ),
+    );
+    p.write("src/lib.txt", "novo\n");
+    p.done("troquei");
+    let app = p.app();
+    let run = app.active().unwrap();
+    let log = std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("events.jsonl")).unwrap();
+    assert!(log.contains("«oculto»") && !log.contains("abc123"), "{log}");
+    let saved = std::fs::read_to_string(p.root.join(".passo/runs").join(&run.id).join("run.json")).unwrap();
+    assert!(!saved.contains("0123456789abcdef0123"), "{saved}");
+    assert!(saved.contains("API_KEY=«oculto»"));
+    let snapshot = serde_json::to_string(&app.snapshot(None).unwrap()).unwrap();
+    assert!(!snapshot.contains("0123456789abcdef0123") && !snapshot.contains("abc123def456"));
+}

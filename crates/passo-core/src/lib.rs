@@ -13,6 +13,7 @@ pub mod flow;
 pub mod lock;
 pub mod map;
 pub mod model;
+pub mod redact;
 pub mod shell;
 pub mod spec;
 

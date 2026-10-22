@@ -347,6 +347,15 @@ pub struct Config {
     pub models: BTreeMap<String, BTreeMap<String, String>>,
     /// Repositories next to this one that requests depend on: read-only for Passo, their map read with a prefix.
     pub projects: Vec<AttachedProject>,
+    pub audit: Audit,
+}
+
+/// What the log and the report keep.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Audit {
+    /// Extra words treated as secret keys (their values are hidden), besides token, password, api_key…
+    pub secrets: Vec<String>,
 }
 
 /// Another repository this project depends on (`../api`). Passo reads its map and never writes to it.
@@ -374,6 +383,7 @@ impl Default for Config {
             sizes: Size::ALL.into_iter().map(|s| (s, Profile::defaults(s))).collect(),
             models: BTreeMap::new(),
             projects: vec![],
+            audit: Audit::default(),
         }
     }
 }

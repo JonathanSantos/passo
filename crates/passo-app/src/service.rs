@@ -606,7 +606,13 @@ impl App {
         parsed.map_err(|invalid| self.invalid(run, invalid))
     }
 
+    /// Hides secrets in text Passo is about to keep, with the project's extra keys.
+    pub fn redact(&self, text: &str) -> String {
+        passo_core::redact::redact_with(text, &self.config.audit.secrets)
+    }
+
     fn invalid(&self, run: &Run, invalid: Invalid) -> anyhow::Error {
+        let invalid = Invalid(invalid.0.iter().map(|p| self.redact(p)).collect());
         let draft = EventDraft {
             kind: "output.invalid",
             actor: Actor::Agent,
@@ -698,9 +704,15 @@ impl App {
 
     fn run_checks(&self, commands: &[String]) -> Vec<CheckResult> {
         let timeout = Duration::from_secs(self.config.checks.timeout_secs.max(1));
+        // The tail of a check's output goes to the run, the feedback and the report: secrets out first.
         commands
             .iter()
             .map(|c| self.runner.run(c, &self.layout.root, timeout))
+            .map(|mut check| {
+                check.command = self.redact(&check.command);
+                check.output = self.redact(&check.output);
+                check
+            })
             .collect()
     }
 
@@ -1059,7 +1071,7 @@ impl App {
             }
             None => vec![],
         };
-        Ok(Snapshot {
+        let snapshot = Snapshot {
             generated_at: self.clock.now(),
             project: self
                 .layout
@@ -1081,7 +1093,9 @@ impl App {
             checks_step: self.config.checks.step.clone(),
             checks_final: self.config.checks.final_.clone(),
             map_nodes,
-        })
+        };
+        // Belt and braces: what the report and the dashboard show is redacted again, so an old log comes out clean.
+        Ok(snapshot.redacted(|text| self.redact(text)))
     }
 }
 

@@ -104,11 +104,8 @@ impl Git {
             .output()
             .context("rodando git")?;
         if !out.status.success() {
-            bail!(
-                "git {}: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&out.stderr).trim()
-            );
+            let stderr = passo_core::redact::redact(String::from_utf8_lossy(&out.stderr).trim());
+            bail!("git {}: {stderr}", args.join(" "));
         }
         Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
     }

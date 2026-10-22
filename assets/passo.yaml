@@ -43,3 +43,7 @@ limits:
 # projects:
 #   - name: api
 #     path: ../api
+
+# O log e o relatório escondem valores de token, senha e chave. Palavras extras tratadas como chave:
+# audit:
+#   secrets: [minha_chave]
