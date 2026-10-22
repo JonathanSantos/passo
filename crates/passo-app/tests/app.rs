@@ -1120,6 +1120,12 @@ fn secrets_stay_out_of_the_log_the_run_and_the_report() {
     assert!(saved.contains("API_KEY=«oculto»"));
     let snapshot = serde_json::to_string(&app.snapshot(None).unwrap()).unwrap();
     assert!(!snapshot.contains("0123456789abcdef0123") && !snapshot.contains("abc123def456"));
+
+    // The final run.json goes into git with the audit copy: clean there too.
+    app.decide(DevAction::Stop(String::new()), Source::Cli).unwrap();
+    let branch = p.git(&["branch", "--list", "passo/*", "--format=%(refname:short)"]);
+    let archived = p.git(&["show", &format!("{branch}:.passo/audit/{}/run.json", run.id)]);
+    assert!(archived.contains("API_KEY=«oculto»") && !archived.contains("0123456789abcdef0123"));
 }
 
 #[test]

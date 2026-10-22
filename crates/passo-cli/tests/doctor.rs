@@ -7,7 +7,8 @@ fn passo(dir: &Path, path: &str, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_passo"))
         .env_clear()
         .env("PATH", path)
-        .env("HOME", dir)
+        // A home of its own: the project folder as HOME would make its .passo/ the global one, not the project's.
+        .env("HOME", dir.join("home"))
         .current_dir(dir)
         .args(args)
         .output()
@@ -27,6 +28,8 @@ fn doctor_proves_the_hook_answers() {
     let root = std::env::temp_dir().join(format!("passo-cli-doctor-{}", std::process::id()));
     std::fs::remove_dir_all(&root).ok();
     std::fs::create_dir_all(&root).unwrap();
+    // The real path (macOS links /var to /private/var), as Linux has it.
+    let root = std::fs::canonicalize(&root).unwrap();
     let bin_dir = Path::new(env!("CARGO_BIN_EXE_passo"))
         .parent()
         .unwrap()
