@@ -989,19 +989,28 @@ pub struct Proposal {
 pub const MAX_PROPOSALS: usize = 10;
 pub const MAX_PROPOSAL_CHARS: usize = 160;
 
-/// Parses what `passo learn` asked for: short proposals, each going somewhere that exists and citing a real lesson.
+/// What `passo learn` hands in: proposals for the dev, and lessons the agent left out on purpose.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LearnDelivery {
+    pub proposals: Vec<Proposal>,
+    /// Fingerprints of the lessons in `descartadas`: they count as seen; the rest come back next time.
+    pub discarded: Vec<String>,
+}
+
+/// Parses what `passo learn` asked for: short proposals, each going somewhere that exists and citing a real lesson,
+/// and the lessons discarded with a reason.
 pub fn parse_learn(
     text: &str,
     lessons: &[crate::learn::Lesson],
     areas: &[String],
     agents: &[String],
-) -> Result<Vec<Proposal>, Invalid> {
+) -> Result<LearnDelivery, Invalid> {
     let root = extract_json(text)?;
     if !root.is_object() {
         return Err(Invalid(vec!["a entrega deve ser um objeto JSON".into()]));
     }
     let mut r = Reader::new(&root);
-    let raw = r.objects(&root, "", "propostas", true);
+    let raw = r.objects(&root, "", "propostas", false);
     if raw.len() > MAX_PROPOSALS {
         r.errors.push(format!(
             "`propostas` tem {} itens; use até {MAX_PROPOSALS}: fique com as que se repetem",
@@ -1077,7 +1086,28 @@ pub fn parse_learn(
             lessons: cited,
         });
     }
-    r.finish(out)
+    let mut discarded = vec![];
+    for (i, d) in r.objects(&root, "", "descartadas", false).into_iter().enumerate() {
+        let path = format!("descartadas[{i}]");
+        let source = r.text(d, &path, "fonte", true);
+        r.text(d, &path, "porque", true);
+        match crate::learn::cited(lessons, &source) {
+            Some(lesson) if !discarded.contains(&lesson.fingerprint) => discarded.push(lesson.fingerprint.clone()),
+            Some(_) => {}
+            None if source.is_empty() => {}
+            None => r.errors.push(format!(
+                "`{path}.fonte` não é uma lição da lista; copie a linha `run …: …: …`"
+            )),
+        }
+    }
+    if out.is_empty() && discarded.is_empty() && r.errors.is_empty() {
+        r.errors
+            .push("entregue `propostas` ou `descartadas`: cada lição vira proposta, é descartada com o porquê, ou volta na próxima vez".into());
+    }
+    r.finish(LearnDelivery {
+        proposals: out,
+        discarded,
+    })
 }
 
 pub const LEARN_TEMPLATE: &str = r#"{
@@ -1089,6 +1119,9 @@ pub const LEARN_TEMPLATE: &str = r#"{
     },
     { "texto": "...", "destino": "mapa:tarefas", "fontes": ["run ...: dica: ..."] },
     { "texto": "...", "destino": "agente:construtor", "fontes": ["run ...: mudança no pedido: ..."] }
+  ],
+  "descartadas": [
+    { "fonte": "run ...: dica: ...", "porque": "foi de um run só e não vale como regra" }
   ]
 }"#;
 
@@ -1117,7 +1150,7 @@ mod tests {
             r#"{{"propostas":[{{"texto":"Ordem de criação","destino":"agente:construtor","fontes":["{}"]}}]}}"#,
             lesson.fingerprint
         );
-        let parsed = parse_learn(&ok, &lessons, &[], &agents).unwrap();
+        let parsed = parse_learn(&ok, &lessons, &[], &agents).unwrap().proposals;
         assert_eq!(parsed[0].target, LearnTarget::Agente("construtor".into()));
         assert_eq!(parsed[0].lessons, vec![lesson.fingerprint.clone()]);
 

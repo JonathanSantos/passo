@@ -1242,7 +1242,8 @@ fn learning_turns_repeated_rejections_into_a_convention() {
     );
     let seen: Vec<String> =
         serde_json::from_str(&std::fs::read_to_string(p.root.join(".passo/learn/seen.json")).unwrap()).unwrap();
-    assert_eq!(seen.len(), 3);
+    assert_eq!(seen.len(), 2, "only the cited lessons are seen");
+    assert_eq!(p.app().lessons().len(), 1, "the lesson nobody cited comes back");
     assert!(p.app().learn_hint().is_none());
 
     p.git(&["add", "-A"]);
@@ -1541,4 +1542,20 @@ fn a_read_only_stage_that_changes_an_attached_repository_is_refused() {
         .to_string();
     assert!(err.contains("api:src/x.ts"), "{err}");
     std::fs::remove_dir_all(attached).ok();
+}
+
+#[test]
+fn discarded_lessons_are_seen_and_the_rest_come_back() {
+    let p = Project::new("learn-discard");
+    past_run(&p, "d1", &["a listagem veio em ordem alfabética"]);
+    past_run(&p, "d2", &["faltou testar o erro de rede"]);
+    p.app().learn_start().unwrap();
+    let only_discard = p.draft(
+        "learn-discard",
+        r#"{"descartadas":[{"fonte":"run d1: recusa: a listagem veio em ordem alfabética","porque":"um run só"}]}"#,
+    );
+    let out = p.done(&only_discard);
+    assert!(out.contains("1 lição(ões) descartada(s)"), "{out}");
+    let left: Vec<String> = p.app().lessons().into_iter().map(|l| l.run_id).collect();
+    assert_eq!(left, vec!["d2".to_string()]);
 }

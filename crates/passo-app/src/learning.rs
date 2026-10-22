@@ -75,6 +75,7 @@ impl App {
             started_at: self.now(),
             lessons,
             proposals: vec![],
+            discarded: vec![],
             stops: 0,
         };
         store_learn::save_task(&self.layout, &task)?;
@@ -139,12 +140,22 @@ impl App {
             .map(|m| m.areas.iter().filter(|a| !a.attached()).map(|a| a.id.clone()).collect())
             .unwrap_or_default();
         let agents: Vec<String> = self.catalog.agents.keys().cloned().collect();
-        let proposals = spec::parse_learn(&text, &task.lessons, &areas, &agents).map_err(|invalid| {
+        let delivery = spec::parse_learn(&text, &task.lessons, &areas, &agents).map_err(|invalid| {
             Rejected(format!(
                 "As propostas têm problemas:\n{invalid}\nCorrija só esses pontos e rode `passo done` de novo."
             ))
         })?;
-        task.proposals = proposals;
+        if delivery.proposals.is_empty() {
+            // Nothing for the dev to decide: the discarded lessons are seen, the rest come back next time.
+            store_learn::add_seen(&self.layout, &delivery.discarded)?;
+            store_learn::remove_task(&self.layout);
+            return Ok(format!(
+                "Nenhuma proposta; {} lição(ões) descartada(s) não voltam. As outras voltam no próximo passo learn.",
+                delivery.discarded.len()
+            ));
+        }
+        task.proposals = delivery.proposals;
+        task.discarded = delivery.discarded;
         store_learn::save_task(&self.layout, &task)?;
         Ok(format!(
             "{}\nMostre a lista ao dev e pare: ele decide.",
@@ -152,7 +163,8 @@ impl App {
         ))
     }
 
-    /// The dev applies the chosen proposals (`1,3`). Every lesson shown in the task counts as seen afterwards.
+    /// The dev applies the chosen proposals (`1,3`). The lessons cited by every proposal, applied or not, and the ones
+    /// the agent discarded count as seen; the others come back next time.
     pub fn learn_apply(&self, choice: &str) -> Result<String> {
         let Some(task) = store_learn::load_task(&self.layout).filter(LearnTask::delivered) else {
             bail!("não há propostas esperando o dev; o agente roda passo learn e entrega com passo done");
@@ -182,7 +194,12 @@ impl App {
             }
             done.push(format!("{n}. {} → {}", proposal.text, proposal.target.label()));
         }
-        let prints: Vec<String> = task.lessons.iter().map(|l| l.fingerprint.clone()).collect();
+        let prints: Vec<String> = task
+            .proposals
+            .iter()
+            .flat_map(|p| p.lessons.iter().cloned())
+            .chain(task.discarded.iter().cloned())
+            .collect();
         store_learn::add_seen(&self.layout, &prints)?;
         store_learn::remove_task(&self.layout);
         let mut out = if done.is_empty() {
@@ -190,7 +207,7 @@ impl App {
         } else {
             format!("Aplicadas:\n{}", done.join("\n"))
         };
-        out.push_str("\nAs lições desta rodada não voltam a aparecer. Commite .passo/ (context.md, map/, agents/, learn/seen.json).");
+        out.push_str("\nAs lições das propostas e as descartadas não voltam; as outras voltam no próximo passo learn. Commite .passo/ (context.md, map/, agents/, learn/seen.json).");
         if agent_changed {
             out.push_str("\nUm agente mudou: rode passo sync para a plataforma ler a nova versão.");
         }

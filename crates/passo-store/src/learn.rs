@@ -13,6 +13,9 @@ pub struct LearnTask {
     pub lessons: Vec<Lesson>,
     #[serde(default)]
     pub proposals: Vec<Proposal>,
+    /// Lessons the agent discarded with a reason: seen once the dev decides.
+    #[serde(default)]
+    pub discarded: Vec<String>,
     /// Times the stop hook kept the agent going.
     #[serde(default)]
     pub stops: u32,

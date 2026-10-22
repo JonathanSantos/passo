@@ -212,7 +212,7 @@ O Passo lê o mapa de `../api/.passo/map/` com os ids prefixados (`api/armazenam
 Cada recusa (`passo no "…"`), mudança no pedido, dica e resposta diferente da recomendada fica no run, assim como as observações do revisor. Quando há 3 ou mais dessas lições ainda não vistas, de 2 ou mais runs, `passo status` e o fim de uma entrega avisam. Então:
 
 1. O agente roda `passo learn`. O Passo junta as lições (sem modelo: lições com duas palavras longas em comum ficam no mesmo grupo; um grupo de mais de um run aparece primeiro) e mostra ao refinador, no nível forte, com o `context.md` atual e as áreas do mapa que os arquivos tocam.
-2. O agente entrega até 10 propostas com `passo done`: uma frase cada (até 160 caracteres), um destino que existe (`context`, `mapa:<área>` ou `agente:<agente>`) e as fontes, copiadas das lições.
+2. O agente entrega até 10 propostas com `passo done`: uma frase cada (até 160 caracteres), um destino que existe (`context`, `mapa:<área>` ou `agente:<agente>`) e as fontes, copiadas das lições. A lição que não vale como regra vai em `descartadas`, com a fonte e o porquê.
 3. Você escolhe: `passo learn --apply 1,3` (ou `todas`), ou `passo learn --cancel`.
 
 Aplicar escreve:
@@ -223,7 +223,7 @@ Aplicar escreve:
 | `mapa:<área>`     | `## Anotações` da área em `.passo/map/areas/<área>.md`                        |
 | `agente:<nome>`   | `.passo/agents/<nome>.md` sob `## Aprendido com os runs` (criado com `extends: <nome>` se não existe); rode `passo sync` |
 
-Todas as lições mostradas naquela rodada entram em `.passo/learn/seen.json`, que vai no git: ninguém do time revê as mesmas. Descartar (`--cancel`) não marca nada como visto. Enquanto o agente trabalha, o projeto é só leitura, como no mapeamento.
+As lições citadas pelas propostas, aplicadas ou não, e as `descartadas` entram em `.passo/learn/seen.json`, que vai no git: ninguém do time revê as mesmas. As que o agente não citou voltam na próxima vez; ninguém decidiu sobre elas. Descartar a rodada inteira (`--cancel`) não marca nada como visto. Enquanto o agente trabalha, o projeto é só leitura, como no mapeamento.
 
 ## Checklists de domínio
 

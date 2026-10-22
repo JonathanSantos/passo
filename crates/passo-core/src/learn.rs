@@ -146,15 +146,17 @@ fn push(
     });
 }
 
-const STOP: [&str; 12] = [
-    "sobre", "porque", "quando", "depois", "antes", "também", "tambem", "ainda", "sempre", "nunca", "muito", "outra",
+/// Words too common to name anything: left out of run ids and of the words that group lessons.
+pub const STOPWORDS: [&str; 26] = [
+    "a", "o", "as", "os", "de", "do", "da", "dos", "das", "e", "em", "um", "uma", "para", "sobre", "porque", "quando",
+    "depois", "antes", "também", "tambem", "ainda", "sempre", "nunca", "muito", "outra",
 ];
 
 /// Words of five letters or more, without accents, without the commonest ones.
 fn words(text: &str) -> BTreeSet<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .map(fold)
-        .filter(|w| w.chars().count() >= 5 && !STOP.contains(&w.as_str()))
+        .filter(|w| w.chars().count() >= 5 && !STOPWORDS.contains(&w.as_str()))
         .collect()
 }
 

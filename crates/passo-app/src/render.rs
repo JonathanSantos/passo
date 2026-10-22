@@ -838,7 +838,8 @@ pub fn learn_task(view: &LearnView) -> String {
          2. Para cada coisa que vale virar regra, escreva uma frase só (até 160 caracteres), no tom de uma convenção do projeto.\n\
          3. Escolha o `destino`: `context` (vale para todo o projeto), `mapa:<área>` (vale para uma área) ou `agente:<agente>` (muda como um agente trabalha).\n\
          4. Em `fontes`, copie a linha `run …: …: …` das lições que sustentam a proposta.\n\
-         5. Até 10 propostas; deixe de fora o que foi de um run só e não se repete. Só leia: nada de escrever no projeto.\n\n",
+         5. Até 10 propostas. Uma lição que não vale como regra (foi de um run só, já está nas convenções) vai em `descartadas`, com o porquê. As que você não citar em nenhum dos dois voltam na próxima vez.\n\
+         6. Só leia: nada de escrever no projeto.\n\n",
     );
     for (i, group) in view.groups.iter().enumerate() {
         let title = if group.recurrent {
